@@ -30,6 +30,7 @@ dependencies = [
     "six>=1.17.0",
     "sqlalchemy>=2.0.52",
     "torch>=2.13.0",
+    "torchvision>=0.28.0",
     "tqdm>=4.70.0",
 ]
 

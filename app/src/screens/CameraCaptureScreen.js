@@ -22,7 +22,7 @@ export default function CameraCaptureScreen({ navigation }) {
         <Ionicons name="camera-outline" size={48} color="#64748B" />
         <Text className="text-lg font-semibold text-ink-800 mt-4 text-center">Camera access needed</Text>
         <Text className="text-sm text-ink-500 mt-2 text-center">
-          Label Lens needs your camera to scan product labels.
+          ALMAC needs your camera to scan product labels.
         </Text>
         <Pressable onPress={requestPermission} className="mt-6 bg-primary-600 rounded-xl px-6 py-3 active:opacity-90">
           <Text className="text-white font-semibold">Grant permission</Text>

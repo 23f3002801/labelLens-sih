@@ -1,4 +1,4 @@
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, Pressable, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -11,9 +11,13 @@ export default function HomeScreen({ navigation }) {
             className="w-20 h-20 rounded-3xl bg-primary-600 items-center justify-center mb-4"
             style={{ shadowColor: '#4F46E5', shadowOpacity: 0.35, shadowRadius: 12, elevation: 8 }}
           >
-            <Ionicons name="scan" size={40} color="white" />
+            <Image
+              source={require('../../assets/android-icon-foreground.png')}
+              style={{ width: 56, height: 56 }}
+              resizeMode="contain"
+            />
           </View>
-          <Text className="text-3xl font-bold text-ink-900">Label Lens</Text>
+          <Text className="text-3xl font-bold text-ink-900">ALMAC</Text>
           <Text className="text-base text-ink-500 mt-2 text-center">
             Scan a product label to check Legal Metrology compliance
           </Text>

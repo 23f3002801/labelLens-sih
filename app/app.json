@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Almac",
+    "name": "ALMAC",
     "slug": "app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -28,8 +28,8 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Label Lens needs camera access to scan product labels.",
-          "microphonePermission": "Label Lens needs microphone access to record 360° label videos.",
+          "cameraPermission": "ALMAC needs camera access to scan product labels.",
+          "microphonePermission": "ALMAC needs microphone access to record 360° label videos.",
           "recordAudioAndroid": false
         }
       ]

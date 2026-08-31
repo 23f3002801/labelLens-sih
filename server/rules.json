@@ -1,53 +1,62 @@
 {
-  "ruleset_version": "1.0",
+  "ruleset_version": "1.1",
   "country_scope": "India",
+  "governing_law": "Legal Metrology (Packaged Commodities) Rules, 2011 (Amended through 2026)",
   "mandatory_declarations": [
     {
       "id": "manufacturer_details",
       "field_name": "Manufacturer Name & Address",
-      "description": "Name and complete address of the manufacturer or packer.",
+      "description": "Name and complete address of manufacturer/packer/importer.",
       "required": true,
-      "expected_format": "Text containing company name, building/street, city, state, and pincode.",
+      "expected_format": "Company Name, Address with Pincode",
       "min_font_size_mm": 1.0
     },
     {
       "id": "net_quantity",
       "field_name": "Net Quantity",
-      "description": "Net quantity in standard units of weight, volume, or number.",
+      "description": "Standard weight, volume, or number.",
       "required": true,
-      "expected_format": "Numeric value followed by unit (e.g., '500 g', '1 L', '100 ml', '1 N').",
+      "expected_format": "Numeric value with metric units (e.g., g, kg, ml, L, N)",
       "min_font_size_mm": 1.5
     },
     {
       "id": "mrp",
       "field_name": "Maximum Retail Price (MRP)",
-      "description": "Maximum Retail Price inclusive of all taxes.",
+      "description": "MRP inclusive of all taxes.",
       "required": true,
       "expected_format": "MRP Rs X.XX (incl. of all taxes) or ₹ X.XX",
-      "min_font_size_mm": 1.0 
+      "min_font_size_mm": 1.0
+    },
+    {
+      "id": "unit_sale_price",
+      "field_name": "Unit Sale Price",
+      "description": "Price per unit quantity (g, kg, ml, L, or piece).",
+      "required": true,
+      "expected_format": "₹ X.XX / g or ₹ X.XX / ml",
+      "min_font_size_mm": 1.0
     },
     {
       "id": "manufacture_date",
       "field_name": "Month and Year of Manufacture",
-      "description": "Date or month/year when the product was manufactured or packed.",
+      "description": "Date or month/year of manufacture or packing.",
       "required": true,
-      "expected_format": "MM/YYYY, MM-YYYY, or 'Mfg Date: DD/MM/YYYY'",
+      "expected_format": "MM/YYYY or MM-YYYY",
       "min_font_size_mm": 1.0
     },
     {
       "id": "consumer_care",
       "field_name": "Consumer Care Details",
-      "description": "Name, address, telephone number, or email for customer complaints.",
+      "description": "Helpline number, email, and address for complaints.",
       "required": true,
-      "expected_format": "Phone number, email ID, and postal address of consumer cell.",
+      "expected_format": "Phone/Email/Address",
       "min_font_size_mm": 1.0
     },
     {
       "id": "country_of_origin",
       "field_name": "Country of Origin",
-      "description": "Country where the product was produced or manufactured.",
-      "required": false,
-      "expected_format": "Country name (e.g., 'Made in India' or 'Country of Origin: India')",
+      "description": "Country where the product was produced.",
+      "required": true,
+      "expected_format": "Country name (e.g., Made in India)",
       "min_font_size_mm": 1.0
     }
   ]

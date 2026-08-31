@@ -28,7 +28,7 @@ export default function VideoCaptureScreen({ navigation }) {
         <Ionicons name="videocam-outline" size={48} color="#64748B" />
         <Text className="text-lg font-semibold text-ink-800 mt-4 text-center">Camera access needed</Text>
         <Text className="text-sm text-ink-500 mt-2 text-center">
-          Label Lens needs your camera to record the 360° scan.
+          ALMAC needs your camera to record the 360° scan.
         </Text>
         <Pressable onPress={requestPermission} className="mt-6 bg-primary-600 rounded-xl px-6 py-3 active:opacity-90">
           <Text className="text-white font-semibold">Grant permission</Text>
