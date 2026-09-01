@@ -1,13 +1,19 @@
 import { View, Text, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import VerdictBanner from '../components/VerdictBanner';
-import EvidenceImage from '../components/EvidenceImage';
+import EvidenceCarousel from '../components/EvidenceCarousel';
 import DeclarationRow from '../components/DeclarationRow';
 
 export default function ResultScreen({ route, navigation }) {
   const { result } = route.params;
-  const { status, evidenceImageUri, declarations } = result;
+  const { status, declarations } = result;
   const compliantCount = declarations.filter((d) => d.status === 'ok').length;
+
+  // A video scan carries one entry per label face in `frames`; a photo scan is a single flat
+  // result, which we wrap into the same one-element shape so there's only one thing to render.
+  const frames = result.frames?.length
+    ? result.frames
+    : [{ scanId: result.scanId, evidenceImageUri: result.evidenceImageUri, declarations }];
 
   return (
     <SafeAreaView className="flex-1 bg-white" edges={['top', 'bottom']}>
@@ -17,7 +23,7 @@ export default function ResultScreen({ route, navigation }) {
         <VerdictBanner status={status} />
 
         <View className="mt-6">
-          <EvidenceImage uri={evidenceImageUri} declarations={declarations} />
+          <EvidenceCarousel frames={frames} />
         </View>
 
         <View className="mt-6">

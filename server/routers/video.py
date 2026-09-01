@@ -10,32 +10,9 @@ from database import SessionLocal, get_db
 from models import Inspection
 from services.cloudinary_service import upload_image as upload_image_to_cloudinary
 from routers.uploads import _process_scan
+from services.replay import serialize_inspection as _serialize_inspection_result
 from services.video_processing import UniversalLabelExtractor
 
-
-def _serialize_inspection_result(inspection: Inspection):
-    violations = [
-        {
-            "id": violation.id,
-            "rule_code": violation.rule_code,
-            "severity": violation.severity,
-            "title": violation.title,
-            "description": violation.description,
-            "evidence_bbox": violation.evidence_bbox,
-        }
-        for violation in inspection.violations
-    ]
-
-    return {
-        "scan_id": inspection.id,
-        "status": inspection.status,
-        "image_path": inspection.image_path,
-        "created_at": inspection.created_at,
-        "compliance_score": inspection.compliance_score,
-        "ocr_result": inspection.raw_ocr_output,
-        "extracted_declarations": inspection.extracted_declarations,
-        "violations": violations,
-    }
 
 router = APIRouter(
     prefix="/api/v1/video",
