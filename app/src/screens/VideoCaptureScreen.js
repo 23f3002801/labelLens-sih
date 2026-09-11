@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -8,15 +8,30 @@ import { useSharedValue, withTiming } from 'react-native-reanimated';
 import RotationRingOverlay from '../components/RotationRingOverlay';
 import CaptureButton from '../components/CaptureButton';
 
-const MAX_DURATION_SEC = 10;
-const MIN_DURATION_MS = 4000;
+// The backend's label extractor samples keyframes evenly across the whole clip (up to 15 of
+// them) and only keeps a face if it turns up in 2+ of those keyframes - a single fast spin
+// gives each face just one or two keyframes, so it gets discarded as noise. A slow ~10-12s
+// rotation gives every face several keyframes' worth of dwell time to survive that filter.
+const MAX_DURATION_SEC = 15;
+const MIN_DURATION_MS = 8000;
 
 export default function VideoCaptureScreen({ navigation }) {
   const cameraRef = useRef(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [recording, setRecording] = useState(false);
   const [canStop, setCanStop] = useState(false);
+  const [elapsedSec, setElapsedSec] = useState(0);
   const progress = useSharedValue(0);
+
+  useEffect(() => {
+    if (!recording) return;
+    const startedAt = Date.now();
+    setElapsedSec(0);
+    const id = setInterval(() => {
+      setElapsedSec(Math.min(MAX_DURATION_SEC, Math.round((Date.now() - startedAt) / 1000)));
+    }, 250);
+    return () => clearInterval(id);
+  }, [recording]);
 
   if (!permission) {
     return <View className="flex-1 bg-black" />;
@@ -80,7 +95,9 @@ export default function VideoCaptureScreen({ navigation }) {
         </Pressable>
         <View className="items-center mt-4 px-10">
           <Text className="text-white text-base font-medium bg-black/30 px-4 py-2 rounded-full overflow-hidden text-center">
-            {recording ? 'Slowly rotate the product in front of the camera' : 'Center the product, then start recording'}
+            {recording
+              ? 'Slowly rotate a full 360° - keep it centered, away from the edges'
+              : 'Leave space around the product, then start recording'}
           </Text>
         </View>
       </SafeAreaView>
@@ -93,7 +110,9 @@ export default function VideoCaptureScreen({ navigation }) {
           </View>
         </View>
         <Text className="text-white/80 text-xs mt-3">
-          {recording ? (canStop ? 'Tap to stop' : 'Keep rotating…') : 'Tap to start'}
+          {recording
+            ? `${elapsedSec}s / ${MAX_DURATION_SEC}s${canStop ? ' · Tap to stop' : ' · Keep rotating…'}`
+            : 'Tap to start'}
         </Text>
       </SafeAreaView>
     </View>

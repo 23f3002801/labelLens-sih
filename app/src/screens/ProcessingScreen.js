@@ -30,9 +30,14 @@ export default function ProcessingScreen({ route, navigation }) {
 
     async function run() {
       try {
+        // A photo submits to one scan; a 360 video submits to one scan per extracted label
+        // face. Both land on the Result screen - the multi-face result just carries a `frames`
+        // array alongside the same top-level status/declarations a single scan has.
         const submit = kind === 'video' ? scanService.submitVideoScan : scanService.submitPhotoScan;
-        const { scanId } = await submit(fileUri);
-        const result = await scanService.getScanResult(scanId);
+        const submission = await submit(fileUri);
+        const result = submission.frames
+          ? await scanService.getMultiScanResult(submission.frames)
+          : await scanService.getScanResult(submission.scanId);
         if (!cancelled) navigation.replace('Result', { result });
       } catch (err) {
         console.error('[ProcessingScreen] scan failed:', err);

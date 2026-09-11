@@ -12,6 +12,7 @@ from routers.ocr import router as ocr_router
 from routers.compliance import router as compliance_router
 from routers.uploads import router as uploads_router
 from routers.video import router as video_router
+from routers.demo import router as demo_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -50,6 +51,7 @@ app.include_router(ocr_router)
 app.include_router(compliance_router)
 app.include_router(uploads_router)
 app.include_router(video_router)
+app.include_router(demo_router)
 
 @app.get("/", tags=["Health"])
 def read_root():

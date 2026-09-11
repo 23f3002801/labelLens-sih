@@ -4,6 +4,7 @@ import HomeScreen from '../screens/HomeScreen';
 import CameraCaptureScreen from '../screens/CameraCaptureScreen';
 import VideoCaptureScreen from '../screens/VideoCaptureScreen';
 import ProcessingScreen from '../screens/ProcessingScreen';
+import DemoScansScreen from '../screens/DemoScansScreen';
 import ResultScreen from '../screens/ResultScreen';
 
 const Stack = createNativeStackNavigator();
@@ -15,6 +16,7 @@ export default function RootNavigator() {
         <Stack.Screen name="Home" component={HomeScreen} />
         <Stack.Screen name="CameraCapture" component={CameraCaptureScreen} />
         <Stack.Screen name="VideoCapture" component={VideoCaptureScreen} />
+        <Stack.Screen name="DemoScans" component={DemoScansScreen} />
         <Stack.Screen name="Processing" component={ProcessingScreen} options={{ gestureEnabled: false }} />
         <Stack.Screen name="Result" component={ResultScreen} options={{ gestureEnabled: false }} />
       </Stack.Navigator>

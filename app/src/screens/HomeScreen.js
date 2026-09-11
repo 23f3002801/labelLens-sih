@@ -51,6 +51,20 @@ export default function HomeScreen({ navigation }) {
             </View>
             <Ionicons name="chevron-forward" size={20} color="#334155" />
           </Pressable>
+
+          <Pressable
+            onPress={() => navigation.navigate('DemoScans')}
+            className="flex-row items-center bg-white border border-ink-200 rounded-2xl p-5 active:opacity-90"
+          >
+            <View className="w-12 h-12 rounded-xl bg-primary-50 items-center justify-center mr-4">
+              <Ionicons name="albums" size={24} color="#4F46E5" />
+            </View>
+            <View className="flex-1">
+              <Text className="text-ink-900 text-lg font-semibold">Saved Scans</Text>
+              <Text className="text-ink-500 text-sm">Open a previously analyzed capture</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#334155" />
+          </Pressable>
         </View>
       </View>
     </SafeAreaView>
