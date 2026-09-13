@@ -580,9 +580,10 @@ class ComplianceEvaluator:
                 field_name=field_name,
                 extracted_text=extracted,
                 confidence=round(block.confidence, 2),
-                evidence_bbox=block.bbox,
+                bbox=block.bbox,
+                font_size_px=block.size.estimated_font_size_px,
+                font_size_mm_est=est_font,
                 format_valid=True,
-                font_size_mm=est_font,
                 size_valid=size_valid,
                 status="COMPLIANT" if size_valid else "TOO_SMALL"
             )
