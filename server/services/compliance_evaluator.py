@@ -1,7 +1,10 @@
 import re
+import io
 import time
+import base64
 import logging
 from typing import List, Dict, Any, Optional
+from PIL import Image, ImageDraw
 
 from schemas.ocr import OCRScanResult, TextBlock, BBox
 from schemas.compliance import (
@@ -11,9 +14,65 @@ from schemas.compliance import (
     DeclarationMissing,
     ViolationDetail
 )
-from services.rule_loader import get_rules_from_db
+from services.rule_loader import get_rules_from_db, get_rules_for_category
+from services.llm_evaluator import get_llm_evaluator
 
 logger = logging.getLogger("compliance_evaluator")
+
+# Patterns and keywords for category-specific declarations
+CATEGORY_RULE_PATTERNS = {
+    "fssai_license": {
+        "keywords": ["FSSAI", "LIC NO", "LICENSE NO", "LIC. NO", "FSSAI LIC"],
+        "regex": r"\b[12]\d{13}\b"
+    },
+    "veg_nonveg_symbol": {
+        "keywords": ["VEG", "VEGETARIAN", "NON-VEG", "NON VEGETARIAN", "GREEN DOT", "BROWN TRIANGLE"],
+    },
+    "nutritional_info": {
+        "keywords": ["NUTRITION", "NUTRITIONAL", "ENERGY", "PROTEIN", "CARBOHYDRATE", "FAT", "TOTAL SUGAR", "PER 100", "CALORIES", "KCAL"]
+    },
+    "ingredients_list": {
+        "keywords": ["INGREDIENTS", "INGREDIENT", "CONTAINS", "COMPOSITION", "CONTENTS"]
+    },
+    "allergen_info": {
+        "keywords": ["ALLERGEN", "ALLERGY", "MAY CONTAIN", "CONTAINS:", "CONTAINS WHEAT", "CONTAINS GLUTEN", "CONTAINS MILK", "CONTAINS NUTS", "CONTAINS SOY"]
+    },
+    "mfg_license_no": {
+        "keywords": ["MFG LIC", "M.L. NO", "ML NO", "MFG. LIC", "MFG. LICENSE", "LICENSE NO", "M.L."]
+    },
+    "batch_lot_number": {
+        "keywords": ["BATCH", "B.NO", "LOT NO", "LOT", "B. NO", "BATCH NO", "LOT NUMBER"]
+    },
+    "cosmetic_ingredients": {
+        "keywords": ["INGREDIENTS", "COMPOSITION", "INCI", "CONTAINS", "AQUA", "WATER"]
+    },
+    "cosmetic_warnings": {
+        "keywords": ["WARNING", "CAUTION", "FOR EXTERNAL USE ONLY", "AVOID CONTACT WITH EYES", "KEEP OUT OF REACH"]
+    },
+    "fibre_composition": {
+        "keywords": ["COTTON", "POLYESTER", "FIBRE", "FABRIC", "WOOL", "SILK", "VISCOSE", "NYLON", "ELASTANE", "%"]
+    },
+    "size_declaration": {
+        "keywords": ["SIZE", "CHEST", "WAIST", "CM", "LENGTH", "CHEST SIZE", "BODY MEASUREMENT"],
+        "regex": r"\b(SIZE\s*:\s*[SMLX]+|\b[SMLX]{1,4}\b|\b\d{2,3}\s*CM\b)"
+    },
+    "wash_care": {
+        "keywords": ["WASH", "CARE", "IRON", "BLEACH", "DRY CLEAN", "DO NOT BLEACH", "WARM WASH", "MACHINE WASH", "HAND WASH"]
+    },
+    "bis_registration": {
+        "keywords": ["BIS", "CRS", "REGISTRATION", "IS/IEC", r"IS \d+", "ISI"],
+        "regex": r"\b(R-\d{8}|IS\s*\d+)\b"
+    },
+    "power_ratings": {
+        "keywords": ["VOLT", "WATT", "INPUT", "OUTPUT", "POWER", "RATING", "HZ"],
+        "regex": r"\b\d+\s*(?:V|W|HZ|VOLT|WATT)\b"
+    },
+    "unit_sale_price": {
+        "keywords": ["UNIT SALE PRICE", "UNIT PRICE", "USP", "PRICE PER"],
+        "regex": r"(?:USP|UNIT\s*SALE\s*PRICE|UNIT\s*PRICE)[^\d]*[\d,]+(?:\.\d{1,2})?"
+    }
+}
+
 
 
 # --- Text Normalization -------------------------------------------------------------
@@ -124,11 +183,18 @@ _COUNTRY_KEYWORDS = ["PRODUCT OF", "MADE IN", "COUNTRY OF ORIGIN", "ORIGIN"]
 
 
 class ComplianceEvaluator:
-    def __init__(self, ruleset: Optional[Dict[str, Any]] = None, db: Optional[Any] = None):
+    def __init__(
+        self,
+        ruleset: Optional[Dict[str, Any]] = None,
+        db: Optional[Any] = None,
+        category: Optional[str] = None
+    ):
         if ruleset is None:
-            ruleset = get_rules_from_db(db=db)
+            ruleset = get_rules_for_category(category=category, db=db)
         self.ruleset = ruleset
+        self.category = category or ruleset.get("category", "general")
         self.mandatory_rules = ruleset.get("mandatory_declarations", [])
+        self.exemptions = ruleset.get("exemptions", [])
         self.rule_map = {r["id"]: r for r in self.mandatory_rules}
 
     def _get_min_font_size(self, rule_id: str, default: float = 1.0) -> float:
@@ -141,14 +207,33 @@ class ComplianceEvaluator:
                 pass
         return default
 
-    def evaluate(self, ocr_result: OCRScanResult) -> ComplianceResult:
+    def evaluate(self, ocr_result: OCRScanResult, image_bytes: Optional[bytes] = None) -> ComplianceResult:
         """
-        Core "Brain" function for Task #6:
-        - Takes OCR text blocks from Task #4
-        - Matches text blocks to legal declaration entities
-        - Runs Presence, Format, and Font Size checks
-        - Returns structured result: what was found, missing, wrong, and overall PASS/FAIL.
+        Core Compliance Engine:
+        - First checks if direct LLM evaluation (Groq / Qwen) is active.
+        - If active and successful, returns grounded LLM compliance result.
+        - Otherwise, executes deterministic Legal Metrology regex validation.
+        - Generates color-coded evidence image highlighting only non-compliant blocks.
         """
+        # 1. Direct LLM Evaluation Hook (Groq / Qwen)
+        llm_eval = get_llm_evaluator()
+        if llm_eval.is_available():
+            llm_result = llm_eval.evaluate_with_llm(
+                ocr_result,
+                category=self.category,
+                ruleset=self.ruleset
+            )
+            if llm_result is not None:
+                if image_bytes:
+                    evidence_b64 = self.generate_violation_evidence_image(
+                        image_bytes,
+                        llm_result.summary.whats_wrong,
+                        llm_result.summary.whats_missing
+                    )
+                    if evidence_b64:
+                        llm_result.annotated_image_base64 = evidence_b64
+                return llm_result
+
         start_time = time.time()
         
         found_declarations: List[DeclarationFound] = []
@@ -162,16 +247,25 @@ class ComplianceEvaluator:
         # across two OCR blocks be matched at all.
         doc_norm = self._document_text(ocr_result)
 
-        # (rule_id, detector, evaluator) - one source for both passes below, so the
-        # primary classification and the fallback can never drift apart.
-        matchers = [
-            ("mrp", self._is_mrp, lambda b: self._eval_mrp(b, ocr_result, doc_norm)),
-            ("net_quantity", self._is_net_quantity, lambda b: self._eval_net_quantity(b, img_height)),
-            ("manufacture_date", self._is_mfg_date, lambda b: self._eval_mfg_date(b, img_height)),
-            ("consumer_care", self._is_consumer_care, lambda b: self._eval_consumer_care(b, img_height)),
-            ("manufacturer_details", self._is_manufacturer_details, lambda b: self._eval_manufacturer_details(b, img_height)),
-            ("country_of_origin", self._is_country_of_origin, lambda b: self._eval_country_of_origin(b, img_height)),
-        ]
+        # Build dynamic matchers for all rules present in active ruleset
+        standard_map = {
+            "mrp": (self._is_mrp, lambda b: self._eval_mrp(b, ocr_result, doc_norm)),
+            "net_quantity": (self._is_net_quantity, lambda b: self._eval_net_quantity(b, img_height)),
+            "manufacture_date": (self._is_mfg_date, lambda b: self._eval_mfg_date(b, img_height)),
+            "consumer_care": (self._is_consumer_care, lambda b: self._eval_consumer_care(b, img_height)),
+            "manufacturer_details": (self._is_manufacturer_details, lambda b: self._eval_manufacturer_details(b, img_height)),
+            "country_of_origin": (self._is_country_of_origin, lambda b: self._eval_country_of_origin(b, img_height)),
+        }
+
+        matchers = []
+        for r in self.mandatory_rules:
+            rid = r["id"]
+            if rid in standard_map:
+                det, ev = standard_map[rid]
+                matchers.append((rid, det, ev))
+            else:
+                det, ev = self._build_dynamic_matcher(r, img_height)
+                matchers.append((rid, det, ev))
 
         # rule_id -> [(score, DeclarationFound, [ViolationDetail])]. A single label
         # legitimately produces several matching blocks for the same rule (an MRP price
@@ -217,10 +311,33 @@ class ComplianceEvaluator:
 
         matched_rule_ids = set(candidates.keys())
 
+        # Check if net quantity below 10g/10ml applies for nutritional_info exemption
+        net_qty_found = next((d for d in found_declarations if d.id == "net_quantity"), None)
+        is_small_pack = False
+        if net_qty_found and net_qty_found.extracted_text:
+            qty_match = re.search(r"(\d+(?:\.\d+)?)\s*(g|gm|grams|ml)\b", net_qty_found.extracted_text, re.IGNORECASE)
+            if qty_match:
+                try:
+                    val = float(qty_match.group(1))
+                    if val <= 10.0:
+                        is_small_pack = True
+                except (ValueError, TypeError):
+                    pass
+
+        exempted_ids = set()
+        for ex in self.exemptions:
+            cond = ex.get("condition")
+            if cond == "net_quantity_below_10g_or_10ml" and is_small_pack:
+                exempted_ids.update(ex.get("exempted_rule_ids", []))
+
         # Step 2: Check Presence for all mandatory declarations defined in active ruleset
         for rule in self.mandatory_rules:
             rule_id = rule["id"]
             is_required = rule.get("required", True)
+
+            if rule_id in exempted_ids:
+                logger.info(f"Rule '{rule_id}' is exempt under category exemption.")
+                continue
 
             if rule_id not in matched_rule_ids and is_required:
                 missing_decl = DeclarationMissing(
@@ -236,7 +353,7 @@ class ComplianceEvaluator:
                     rule_id=rule_id,
                     field_name=rule.get("field_name", rule_id),
                     violation_type="missing",
-                    severity="CRITICAL" if rule_id in ["mrp", "net_quantity"] else "MAJOR",
+                    severity="CRITICAL" if rule_id in ["mrp", "net_quantity", "fssai_license"] else "MAJOR",
                     description=f"Mandatory declaration '{rule.get('field_name')}' is missing from product packaging.",
                     evidence_bbox=None
                 )
@@ -292,6 +409,14 @@ class ComplianceEvaluator:
             "final_status": "COMPLIANT" if overall_result == "PASS" else "NON_COMPLIANT",
         }
 
+        annotated_b64 = None
+        if image_bytes:
+            annotated_b64 = self.generate_violation_evidence_image(
+                image_bytes,
+                violations,
+                missing_declarations
+            )
+
         return ComplianceResult(
             overall_result=overall_result,
             compliance_score=compliance_score,
@@ -299,9 +424,78 @@ class ComplianceEvaluator:
             total_found=total_found_valid,
             summary=summary,
             processing_time_ms=processing_time,
-            annotated_image_base64=ocr_result.annotated_image_base64,
+            annotated_image_base64=annotated_b64 or ocr_result.annotated_image_base64,
             structured_result=structured_result,
         )
+
+    def generate_violation_evidence_image(
+        self,
+        image_bytes: bytes,
+        violations: List[ViolationDetail],
+        missing_declarations: List[DeclarationMissing]
+    ) -> Optional[str]:
+        """
+        Draws focused, color-coded bounding boxes strictly for non-compliant declarations.
+        CRITICAL: Red (#EF4444)
+        MAJOR: Orange (#F97316)
+        MINOR: Yellow (#EAB308)
+        Adds top-banner alert if mandatory declarations are missing.
+        """
+        try:
+            pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+            overlay = Image.new("RGBA", pil_img.size, (255, 255, 255, 0))
+            draw = ImageDraw.Draw(overlay)
+
+            severity_colors = {
+                "CRITICAL": ((239, 68, 68, 255), (239, 68, 68, 55)),
+                "MAJOR": ((249, 115, 22, 255), (249, 115, 22, 45)),
+                "MINOR": ((234, 179, 8, 255), (234, 179, 8, 35))
+            }
+
+            for v in violations:
+                if not v.evidence_bbox or v.evidence_bbox.x_max <= 0:
+                    continue
+
+                bbox = v.evidence_bbox
+                outline_color, fill_color = severity_colors.get(v.severity, severity_colors["CRITICAL"])
+
+                # Draw bounding rectangle around the violating text block
+                draw.rectangle(
+                    [(bbox.x_min, bbox.y_min), (bbox.x_max, bbox.y_max)],
+                    outline=outline_color,
+                    width=3,
+                    fill=fill_color
+                )
+
+                # Draw badge pill label above box
+                v_type = (v.violation_type or "NON_COMPLIANT").upper()
+                v_sev = (v.severity or "VIOLATION").upper()
+                label_text = f"[{v_sev}] {v.field_name}: {v_type}"
+                badge_y = max(0, bbox.y_min - 20)
+                badge_w = len(label_text) * 7 + 10
+                draw.rectangle(
+                    [(bbox.x_min, badge_y), (bbox.x_min + badge_w, badge_y + 18)],
+                    fill=outline_color
+                )
+                draw.text((bbox.x_min + 5, badge_y + 2), label_text, fill=(255, 255, 255, 255))
+
+            # Missing declarations top banner
+            if missing_declarations:
+                missing_names = ", ".join(d.field_name for d in missing_declarations[:3])
+                if len(missing_declarations) > 3:
+                    missing_names += f" +{len(missing_declarations) - 3} more"
+                banner_text = f"NON-COMPLIANCE: Missing mandatory declarations: {missing_names}"
+                banner_h = 30
+                draw.rectangle([(0, 0), (pil_img.size[0], banner_h)], fill=(185, 28, 28, 220))
+                draw.text((12, 7), banner_text, fill=(255, 255, 255, 255))
+
+            combined = Image.alpha_composite(pil_img, overlay).convert("RGB")
+            buffered = io.BytesIO()
+            combined.save(buffered, format="JPEG", quality=85)
+            return base64.b64encode(buffered.getvalue()).decode("utf-8")
+        except Exception as err:
+            logger.warning(f"Failed to generate violation evidence image: {err}")
+            return None
 
     # --- Text Assembly & Candidate Selection Helpers ---
 
@@ -329,7 +523,69 @@ class ComplianceEvaluator:
             return bool(_EMAIL_RE.search(text)) or bool(_PHONE_RE.search(flat))
         if rule_id == "manufacturer_details":
             return bool(_PINCODE_RE.search(flat)) or len(flat) > 20
+        cat_config = CATEGORY_RULE_PATTERNS.get(rule_id, {})
+        if "regex" in cat_config:
+            return bool(re.search(cat_config["regex"], text, re.IGNORECASE))
         return True
+
+    def _build_dynamic_matcher(self, rule: Dict[str, Any], img_height: int):
+        """Generates dynamic detector and evaluator functions for category rules."""
+        rule_id = rule["id"]
+        field_name = rule.get("field_name", rule_id)
+        regex_pattern = rule.get("regex_pattern")
+        min_font_mm = float(rule.get("min_font_size_mm", 1.0))
+
+        cat_config = CATEGORY_RULE_PATTERNS.get(rule_id, {})
+        custom_regex = regex_pattern or cat_config.get("regex")
+        keywords = cat_config.get("keywords", [])
+        if not keywords:
+            clean_name = re.sub(r"[^A-Za-z0-9\s]", "", field_name.upper())
+            keywords = [clean_name]
+
+        def detector(text: str) -> bool:
+            t_upper = text.upper()
+            if custom_regex and re.search(custom_regex, text, re.IGNORECASE):
+                return True
+            return any(kw in t_upper for kw in keywords)
+
+        def evaluator(block: TextBlock):
+            est_font = self._estimate_font_mm(block.size.estimated_font_size_px, img_height)
+            size_valid = est_font >= min_font_mm
+
+            extracted = block.text.strip()
+            if custom_regex:
+                m = re.search(custom_regex, block.text, re.IGNORECASE)
+                if m:
+                    extracted = m.group(0)
+
+            viols = []
+            if not size_valid:
+                viols.append(
+                    ViolationDetail(
+                        id=f"viol_font_{rule_id}_{int(time.time())}",
+                        rule_id=rule_id,
+                        field_name=field_name,
+                        violation_type="size_below_standard",
+                        severity="MINOR",
+                        description=f"{field_name} font size ({est_font}mm) below minimum required ({min_font_mm}mm).",
+                        evidence_bbox=block.bbox
+                    )
+                )
+
+            decl = DeclarationFound(
+                id=rule_id,
+                field_name=field_name,
+                extracted_text=extracted,
+                confidence=round(block.confidence, 2),
+                evidence_bbox=block.bbox,
+                format_valid=True,
+                font_size_mm=est_font,
+                size_valid=size_valid,
+                status="COMPLIANT" if size_valid else "TOO_SMALL"
+            )
+            return decl, viols
+
+        return detector, evaluator
 
     def _add_candidate(self, candidates: Dict[str, List[tuple]], rule_id: str, block: TextBlock,
                        decl: DeclarationFound, viols: List[ViolationDetail]) -> None:
@@ -640,7 +896,13 @@ class ComplianceEvaluator:
 
 
 # Helper function to evaluate image compliance directly
-def evaluate_label_compliance(ocr_result: OCRScanResult, ruleset: Optional[Dict[str, Any]] = None, db: Optional[Any] = None) -> ComplianceResult:
-    evaluator = ComplianceEvaluator(ruleset=ruleset, db=db)
-    return evaluator.evaluate(ocr_result)
+def evaluate_label_compliance(
+    ocr_result: OCRScanResult,
+    ruleset: Optional[Dict[str, Any]] = None,
+    db: Optional[Any] = None,
+    category: Optional[str] = None,
+    image_bytes: Optional[bytes] = None
+) -> ComplianceResult:
+    evaluator = ComplianceEvaluator(ruleset=ruleset, db=db, category=category)
+    return evaluator.evaluate(ocr_result, image_bytes=image_bytes)
 

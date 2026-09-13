@@ -38,6 +38,13 @@ dependencies = [
 pythonpath = ["."]
 testpaths = ["tests"]
 
+[tool.uv]
+package = false
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["models*", "routers*", "schemas*", "services*"]
+
 [[tool.uv.index]]
 name = "pytorch"
 url = "https://download.pytorch.org/whl/cu130"

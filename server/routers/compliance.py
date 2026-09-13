@@ -8,7 +8,7 @@ from schemas.compliance import ComplianceResult
 from schemas.ocr import OCRScanResult
 from services.ocr_service import get_ocr_service
 from services.compliance_evaluator import evaluate_label_compliance
-from services.rule_loader import load_rules_from_file, sync_rules_to_db, get_rules_from_db
+from services.rule_loader import load_rules_from_file, sync_rules_to_db, get_rules_from_db, get_rules_for_category
 from database import get_db
 from models import Inspection, Violation, Product
 
@@ -19,10 +19,13 @@ router = APIRouter(prefix="/api/v1/compliance", tags=["Compliance Evaluation Eng
 @router.get(
     "/rules",
     summary="Get active Legal Metrology mandatory declarations ruleset",
-    description="Returns active rules list dynamically loaded from database compliance_rules table."
+    description="Returns active rules list dynamically loaded from database compliance_rules table filtered by category."
 )
-def get_active_rules(db: Session = Depends(get_db)):
-    rules_data = get_rules_from_db(db=db)
+def get_active_rules(
+    category: Optional[str] = Query(default="general", description="Product category (general, food, cosmetics, textile, electronics, all)"),
+    db: Session = Depends(get_db)
+):
+    rules_data = get_rules_for_category(category=category, db=db)
     return rules_data
 
 
@@ -30,12 +33,14 @@ def get_active_rules(db: Session = Depends(get_db)):
     "/evaluate-image",
     response_model=ComplianceResult,
     summary="End-to-end Legal Metrology compliance evaluation from label photo upload",
-    description="Runs OCR extraction, evaluates active Legal Metrology DB rules, logs inspection in DB, and returns structured result."
+    description="Runs OCR extraction, evaluates active Legal Metrology DB rules for category, logs inspection in DB, and returns structured result."
 )
 async def evaluate_image_compliance(
     file: UploadFile = File(..., description="Packaged product label photo"),
     enhance: bool = Query(default=True, description="Apply contrast enhancement preprocessing"),
     min_confidence: float = Query(default=0.3, ge=0.0, le=1.0, description="Minimum OCR confidence threshold"),
+    category: Optional[str] = Query(default=None, description="Product category override (food, cosmetics, textile, electronics, general)"),
+    product_id: Optional[str] = Query(default=None, description="Optional existing Product ID to resolve category and link inspection"),
     db: Session = Depends(get_db)
 ):
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -49,6 +54,15 @@ async def evaluate_image_compliance(
         if len(image_bytes) == 0:
             raise HTTPException(status_code=400, detail="Uploaded image is empty.")
 
+        # Resolve category (explicit override > product lookup > 'general')
+        resolved_category = category if category not in ("string", "") else None
+        resolved_product_id = product_id if product_id not in ("string", "") else None
+        if not resolved_category and resolved_product_id:
+            product = db.get(Product, resolved_product_id)
+            if product and product.category:
+                resolved_category = product.category
+        resolved_category = (resolved_category or "general").strip().lower()
+
         # Step 1: Run Task #4 OCR Extraction Engine
         ocr_service = get_ocr_service()
         ocr_result = ocr_service.extract_text(
@@ -61,14 +75,38 @@ async def evaluate_image_compliance(
         if not ocr_result.success:
             raise HTTPException(status_code=500, detail=f"OCR Extraction failed: {ocr_result.error}")
 
-        # Step 2: Run Compliance Evaluator Engine with DB-driven rules
-        ruleset = get_rules_from_db(db=db)
-        compliance_result = evaluate_label_compliance(ocr_result, ruleset=ruleset, db=db)
+        # Step 2: Run Compliance Evaluator Engine with category-scoped DB rules
+        ruleset = get_rules_for_category(category=resolved_category, db=db)
+        compliance_result = evaluate_label_compliance(
+            ocr_result,
+            ruleset=ruleset,
+            db=db,
+            category=resolved_category,
+            image_bytes=image_bytes
+        )
 
-        # Step 3: Persist Inspection Record and Violations to PostgreSQL / SQLite Database
+        # Step 3: Persist Inspection Record and Violations to Database
         try:
+            # Save annotated evidence image to disk if present
+            ann_path = None
+            if compliance_result.annotated_image_base64:
+                import uuid
+                from pathlib import Path
+                upload_dir = Path(__file__).resolve().parent.parent / "storage" / "uploads"
+                upload_dir.mkdir(parents=True, exist_ok=True)
+                ann_filename = f"eval_{uuid.uuid4().hex[:12]}_annotated.jpg"
+                try:
+                    with open(upload_dir / ann_filename, "wb") as f:
+                        f.write(base64.b64decode(compliance_result.annotated_image_base64))
+                    ann_path = f"/uploads/{ann_filename}"
+                except Exception as save_err:
+                    logger.warning("Could not save evaluation annotated image: %s", save_err)
+
             # Create Inspection Log
             inspection_log = Inspection(
+                product_id=resolved_product_id,
+                category=resolved_category,
+                annotated_image_path=ann_path,
                 raw_ocr_output=ocr_result.model_dump(),
                 extracted_declarations=[d.model_dump() for d in compliance_result.summary.what_was_found],
                 compliance_score=compliance_result.compliance_score,
@@ -80,12 +118,14 @@ async def evaluate_image_compliance(
 
             # Create Violation Records
             for v in compliance_result.summary.whats_wrong:
+                v_type = (v.violation_type or "NON_COMPLIANT").upper()
+                v_sev = v.severity or "CRITICAL"
                 viol_obj = Violation(
                     inspection_id=inspection_log.id,
                     rule_code=v.rule_id,
-                    severity=v.severity,
-                    title=f"{v.field_name} - {v.violation_type.upper()}",
-                    description=v.description,
+                    severity=v_sev,
+                    title=f"{v.field_name} - {v_type}"[:150],
+                    description=str(v.description or "")[:500],
                     evidence_bbox=v.evidence_bbox.model_dump() if v.evidence_bbox else None
                 )
                 db.add(viol_obj)
@@ -112,9 +152,21 @@ async def evaluate_image_compliance(
     "/evaluate-ocr",
     response_model=ComplianceResult,
     summary="Evaluate Legal Metrology compliance from pre-computed OCR JSON output",
-    description="Takes raw OCRScanResult JSON output and evaluates against Legal Metrology DB ruleset."
+    description="Takes raw OCRScanResult JSON output and evaluates against category-scoped Legal Metrology DB ruleset."
 )
-def evaluate_ocr_payload(ocr_result: OCRScanResult, db: Session = Depends(get_db)):
-    ruleset = get_rules_from_db(db=db)
-    result = evaluate_label_compliance(ocr_result, ruleset=ruleset, db=db)
+def evaluate_ocr_payload(
+    ocr_result: OCRScanResult,
+    category: Optional[str] = Query(default="general", description="Product category (food, cosmetics, textile, electronics, general)"),
+    product_id: Optional[str] = Query(default=None, description="Optional Product ID to resolve category"),
+    db: Session = Depends(get_db)
+):
+    resolved_category = category
+    if product_id:
+        product = db.get(Product, product_id)
+        if product and product.category:
+            resolved_category = product.category
+    resolved_category = (resolved_category or "general").strip().lower()
+
+    ruleset = get_rules_for_category(category=resolved_category, db=db)
+    result = evaluate_label_compliance(ocr_result, ruleset=ruleset, db=db, category=resolved_category)
     return result

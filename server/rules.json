@@ -1,23 +1,25 @@
 {
-  "ruleset_version": "1.1",
+  "ruleset_version": "2.0",
   "country_scope": "India",
   "governing_law": "Legal Metrology (Packaged Commodities) Rules, 2011 (Amended through 2026)",
-  "mandatory_declarations": [
+  "base_declarations": [
     {
       "id": "manufacturer_details",
       "field_name": "Manufacturer Name & Address",
       "description": "Name and complete address of manufacturer/packer/importer.",
       "required": true,
       "expected_format": "Company Name, Address with Pincode",
-      "min_font_size_mm": 1.0
+      "min_font_size_mm": 1.0,
+      "detection_type": "text"
     },
     {
       "id": "net_quantity",
       "field_name": "Net Quantity",
-      "description": "Standard weight, volume, or number.",
+      "description": "Standard weight, volume, or number in metric SI units.",
       "required": true,
       "expected_format": "Numeric value with metric units (e.g., g, kg, ml, L, N)",
-      "min_font_size_mm": 1.5
+      "min_font_size_mm": 1.5,
+      "detection_type": "text"
     },
     {
       "id": "mrp",
@@ -25,7 +27,8 @@
       "description": "MRP inclusive of all taxes.",
       "required": true,
       "expected_format": "MRP Rs X.XX (incl. of all taxes) or ₹ X.XX",
-      "min_font_size_mm": 1.0
+      "min_font_size_mm": 1.0,
+      "detection_type": "text"
     },
     {
       "id": "unit_sale_price",
@@ -33,7 +36,8 @@
       "description": "Price per unit quantity (g, kg, ml, L, or piece).",
       "required": true,
       "expected_format": "₹ X.XX / g or ₹ X.XX / ml",
-      "min_font_size_mm": 1.0
+      "min_font_size_mm": 1.0,
+      "detection_type": "text"
     },
     {
       "id": "manufacture_date",
@@ -41,7 +45,8 @@
       "description": "Date or month/year of manufacture or packing.",
       "required": true,
       "expected_format": "MM/YYYY or MM-YYYY",
-      "min_font_size_mm": 1.0
+      "min_font_size_mm": 1.0,
+      "detection_type": "text"
     },
     {
       "id": "consumer_care",
@@ -49,7 +54,8 @@
       "description": "Helpline number, email, and address for complaints.",
       "required": true,
       "expected_format": "Phone/Email/Address",
-      "min_font_size_mm": 1.0
+      "min_font_size_mm": 1.0,
+      "detection_type": "text"
     },
     {
       "id": "country_of_origin",
@@ -57,7 +63,171 @@
       "description": "Country where the product was produced.",
       "required": true,
       "expected_format": "Country name (e.g., Made in India)",
-      "min_font_size_mm": 1.0
+      "min_font_size_mm": 1.0,
+      "detection_type": "text"
     }
-  ]
+  ],
+  "categories": {
+    "food": {
+      "name": "Food & Beverages",
+      "governing_law": "FSSAI Food Safety & Standards (Packaging & Labelling) Regulations",
+      "declarations": [
+        {
+          "id": "fssai_license",
+          "field_name": "FSSAI License Number & Logo",
+          "description": "14-digit FSSAI license number with the FSSAI logo.",
+          "required": true,
+          "expected_format": "14-digit numeric (e.g. 10012345678901)",
+          "regex_pattern": "\\b[12]\\d{13}\\b",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text"
+        },
+        {
+          "id": "veg_nonveg_symbol",
+          "field_name": "Veg / Non-Veg Indicator",
+          "description": "Green circle (veg) or brown triangle (non-veg) inside a square.",
+          "required": true,
+          "expected_format": "Visual green dot or brown triangle logo",
+          "min_font_size_mm": 1.0,
+          "detection_type": "visual"
+        },
+        {
+          "id": "nutritional_info",
+          "field_name": "Nutritional Information Table",
+          "description": "Per 100g/serving: Energy (kcal), Protein, Carbohydrate, Total Sugar, Added Sugar, Total Fat, Saturated Fat, Trans Fat, Sodium.",
+          "required": true,
+          "expected_format": "Tabular format with numeric values and units",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text"
+        },
+        {
+          "id": "ingredients_list",
+          "field_name": "List of Ingredients",
+          "description": "Complete ingredient listing in descending order by weight or volume.",
+          "required": true,
+          "expected_format": "Comma-separated ingredient names, descending order",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text"
+        },
+        {
+          "id": "allergen_info",
+          "field_name": "Allergen Warning",
+          "description": "Allergen declaration for substances like gluten, nuts, milk, soy, eggs.",
+          "required": true,
+          "expected_format": "Contains: <allergen list> or 'May contain traces of...'",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text"
+        }
+      ],
+      "exemptions": [
+        {
+          "condition": "net_quantity_below_10g_or_10ml",
+          "description": "Packages with net content <= 10g or 10ml are exempt from detailed nutritional information table.",
+          "exempted_rule_ids": ["nutritional_info"]
+        }
+      ]
+    },
+    "cosmetics": {
+      "name": "Cosmetics & Personal Care",
+      "governing_law": "Drugs and Cosmetics Act / Cosmetics Rules, 2020",
+      "declarations": [
+        {
+          "id": "mfg_license_no",
+          "field_name": "Manufacturing License Number",
+          "description": "Manufacturing license number issued by state licensing authority.",
+          "required": true,
+          "expected_format": "Mfg Lic No. / M.L. No. followed by alphanumeric code",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text"
+        },
+        {
+          "id": "batch_lot_number",
+          "field_name": "Batch / Lot Number",
+          "description": "Batch or lot number for traceability.",
+          "required": true,
+          "expected_format": "B.No. / Batch No. / Lot No. followed by alphanumeric code",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text"
+        },
+        {
+          "id": "cosmetic_ingredients",
+          "field_name": "Full Ingredients List (INCI)",
+          "description": "Complete list of ingredients using INCI nomenclature.",
+          "required": true,
+          "expected_format": "Comma-separated INCI ingredient names",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text"
+        },
+        {
+          "id": "cosmetic_warnings",
+          "field_name": "Warning / Precautionary Statements",
+          "description": "Applicable warning statements (e.g., 'For external use only', 'Avoid contact with eyes').",
+          "required": false,
+          "expected_format": "Warning text on label",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text"
+        }
+      ],
+      "exemptions": []
+    },
+    "textile": {
+      "name": "Textiles & Apparel",
+      "governing_law": "Legal Metrology (Packaged Commodities) Rules — Garment Provisions",
+      "declarations": [
+        {
+          "id": "fibre_composition",
+          "field_name": "Fibre Composition",
+          "description": "Percentage composition of each fibre type.",
+          "required": true,
+          "expected_format": "e.g. '100% Cotton' or '65% Polyester 35% Cotton'",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text"
+        },
+        {
+          "id": "size_declaration",
+          "field_name": "Standard Size & Body Dimensions",
+          "description": "International standard size letter plus body measurements in cm.",
+          "required": true,
+          "expected_format": "Size letter (S/M/L/XL/XXL) with chest/waist in cm",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text"
+        },
+        {
+          "id": "wash_care",
+          "field_name": "Wash Care Instructions",
+          "description": "Washing, drying, and ironing instructions or ISO symbols.",
+          "required": true,
+          "expected_format": "ISO wash care symbols or textual instructions",
+          "min_font_size_mm": 1.0,
+          "detection_type": "visual"
+        }
+      ],
+      "exemptions": []
+    },
+    "electronics": {
+      "name": "Electronics & Electrical Appliances",
+      "governing_law": "BIS (Bureau of Indian Standards) / BEE (Bureau of Energy Efficiency)",
+      "declarations": [
+        {
+          "id": "bis_registration",
+          "field_name": "BIS / CRS Registration Mark",
+          "description": "BIS certification or CRS registration number.",
+          "required": true,
+          "expected_format": "R-XXXXXXXX (CRS Registration Number)",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text"
+        },
+        {
+          "id": "power_ratings",
+          "field_name": "Voltage / Wattage / Input Ratings",
+          "description": "Electrical input ratings: voltage, wattage, frequency.",
+          "required": true,
+          "expected_format": "e.g. '230V~50Hz, 1500W' or 'Input: 100-240V, 50/60Hz'",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text"
+        }
+      ],
+      "exemptions": []
+    }
+  }
 }

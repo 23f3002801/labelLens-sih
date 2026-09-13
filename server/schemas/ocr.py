@@ -39,4 +39,5 @@ class OCRScanResult(BaseModel):
     raw_text: str = Field(..., description="All extracted text joined by line breaks")
     processing_time_ms: float = Field(..., description="Total processing time in milliseconds")
     annotated_image_base64: Optional[str] = Field(default=None, description="Optional base64 encoded image with bounding box visualization")
+    pipelines_executed: Optional[List[str]] = Field(default=None, description="Names of preprocessing pipelines executed")
     error: Optional[str] = Field(default=None, description="Error message if scanning failed")

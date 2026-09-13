@@ -9,6 +9,7 @@ class Inspection(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     product_id = Column(String(36), ForeignKey("products.id"), nullable=True, index=True)
+    category = Column(String(50), nullable=True, index=True)
     inspector_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
     image_path = Column(String(255), nullable=True)
     annotated_image_path = Column(String(255), nullable=True)
