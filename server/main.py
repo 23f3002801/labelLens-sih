@@ -14,12 +14,20 @@ from routers.uploads import router as uploads_router
 from routers.video import router as video_router
 from routers.demo import router as demo_router
 
+import logging
+
+logger = logging.getLogger("main")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize database schema tables on startup
-    init_db()
-    # Sync rules.json to database rules table
-    sync_rules_to_db()
+    # Old FastAPI persistence decommissioned (Issue #47) in favor of Node.js Fastify & Prisma
+    # DB initialization is optional/non-blocking so FastAPI runs as a 100% stateless compute service
+    try:
+        init_db()
+        sync_rules_to_db()
+        logger.info("Database schema check passed.")
+    except Exception as e:
+        logger.warning(f"Database initialization skipped (persistence decommissioned to Node server): {e}")
     yield
 
 app = FastAPI(
