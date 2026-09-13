@@ -44,7 +44,10 @@ CATEGORY_RULE_PATTERNS = {
         "keywords": ["BATCH", "B.NO", "LOT NO", "LOT", "B. NO", "BATCH NO", "LOT NUMBER"]
     },
     "cosmetic_ingredients": {
-        "keywords": ["INGREDIENTS", "COMPOSITION", "INCI", "CONTAINS", "AQUA", "WATER"]
+        "keywords": ["INGREDIENTS", "COMPOSITION", "INCI", "CONTAINS", "AQUA", "WATER", "KEY INGREDIENTS", "ACTIVE INGREDIENTS", "PURIFIED WATER", "GLYCERIN"]
+    },
+    "directions_for_use": {
+        "keywords": ["HOW TO USE", "DIRECTIONS FOR USE", "DIRECTIONS", "HOW TO APPLY", "USAGE", "APPLICATION", "USAGE DIRECTIONS", "APPLY TO", "APPLY ON", "MASSAGE GENTLY", "RINSE OFF", "PATCH TEST"]
     },
     "cosmetic_warnings": {
         "keywords": ["WARNING", "CAUTION", "FOR EXTERNAL USE ONLY", "AVOID CONTACT WITH EYES", "KEEP OUT OF REACH"]

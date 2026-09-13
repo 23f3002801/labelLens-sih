@@ -66,7 +66,7 @@ def test_sync_rules_to_db(db_session):
     sync_rules_to_db(db=db_session, force_update=True)
 
     all_rules = db_session.query(ComplianceRule).all()
-    assert len(all_rules) >= 20  # 7 base + 5 food + 4 cosmetics + 3 textile + 2 electronics = 21
+    assert len(all_rules) >= 22  # 7 base + 5 food + 5 cosmetics + 3 textile + 2 electronics = 22
 
     base_rules = db_session.query(ComplianceRule).filter(ComplianceRule.category == "base").all()
     assert len(base_rules) == 7
@@ -112,17 +112,19 @@ def test_get_rules_for_category_food(db_session):
 
 
 def test_get_rules_for_category_cosmetics(db_session):
-    """'cosmetics' category should return 7 base + 4 cosmetic rules = 11 total."""
+    """'cosmetics' category should return 7 base + 5 cosmetic rules = 12 total."""
     sync_rules_to_db(db=db_session)
     result = get_rules_for_category(category="cosmetics", db=db_session)
 
     assert result["category"] == "cosmetics"
     declarations = result["mandatory_declarations"]
-    assert len(declarations) == 11
+    assert len(declarations) == 12
 
     decl_ids = [d["id"] for d in declarations]
     assert "mfg_license_no" in decl_ids
     assert "batch_lot_number" in decl_ids
+    assert "cosmetic_ingredients" in decl_ids
+    assert "directions_for_use" in decl_ids
 
 
 def test_get_rules_for_category_all(db_session):
@@ -131,7 +133,7 @@ def test_get_rules_for_category_all(db_session):
     result = get_rules_for_category(category="all", db=db_session)
 
     assert result["category"] == "all"
-    assert len(result["mandatory_declarations"]) >= 21
+    assert len(result["mandatory_declarations"]) >= 22
 
 
 def test_get_rules_from_db_backwards_compatibility(db_session):

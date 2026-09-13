@@ -159,6 +159,15 @@
           "detection_type": "text"
         },
         {
+          "id": "directions_for_use",
+          "field_name": "Directions for Use / How to Use",
+          "description": "Instructions for safe usage and application (e.g., 'How to use: Apply on wet face', 'Directions for use', 'Apply evenly on face/body').",
+          "required": true,
+          "expected_format": "Directions for use / How to apply instructions",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text"
+        },
+        {
           "id": "cosmetic_warnings",
           "field_name": "Warning / Precautionary Statements",
           "description": "Applicable warning statements (e.g., 'For external use only', 'Avoid contact with eyes').",
