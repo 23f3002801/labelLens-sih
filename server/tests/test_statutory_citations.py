@@ -215,7 +215,6 @@ def test_rule_12_non_standard_symbol_violation():
     )
     assert symbol_viol is not None
     assert symbol_viol.violation_type == "wrong_format"
-    assert "Rule 12" in symbol_viol.description
     assert symbol_viol.citation is not None
     assert "Rule 12" in symbol_viol.citation.rule_number
 

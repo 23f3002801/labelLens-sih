@@ -1,0 +1,115 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  FIELD_INSPECTOR
+  DISTRICT_OFFICER
+  STATE_CONTROLLER
+  ADMIN
+}
+
+model User {
+  id          String       @id @default(uuid()) @db.VarChar(36)
+  fullName    String       @map("full_name") @db.VarChar(100)
+  email       String       @unique(map: "ix_users_email") @db.VarChar(150)
+  password    String?      @db.VarChar(255)
+  role        String       @default("FIELD_INSPECTOR") @db.VarChar(30)
+  district    String?      @db.VarChar(100)
+  state       String?      @db.VarChar(100)
+  badgeNumber String?      @map("badge_number") @db.VarChar(50)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamp(6)
+  inspections Inspection[]
+  reports     Report[]
+
+  @@index([district], map: "ix_users_district")
+  @@index([state], map: "ix_users_state")
+  @@map("users")
+}
+
+model Product {
+  id               String       @id @default(uuid()) @db.VarChar(36)
+  barcode          String?      @db.VarChar(50)
+  brandName        String?      @map("brand_name") @db.VarChar(100)
+  commodityName    String?      @map("commodity_name") @db.VarChar(150)
+  manufacturerName String?      @map("manufacturer_name") @db.VarChar(200)
+  category         String?      @db.VarChar(100)
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamp(6)
+  inspections      Inspection[]
+
+  @@index([barcode], map: "ix_products_barcode")
+  @@index([brandName], map: "ix_products_brand_name")
+  @@map("products")
+}
+
+model Inspection {
+  id                    String      @id @default(uuid()) @db.VarChar(36)
+  productId             String?     @map("product_id") @db.VarChar(36)
+  inspectorId           String?     @map("inspector_id") @db.VarChar(36)
+  imagePath             String?     @map("image_path") @db.VarChar(255)
+  annotatedImagePath    String?     @map("annotated_image_path") @db.VarChar(255)
+  rawOcrOutput          Json?       @map("raw_ocr_output") @db.Json
+  extractedDeclarations Json?       @map("extracted_declarations") @db.Json
+  complianceScore       Float       @default(100.0) @map("compliance_score")
+  status                String      @default("COMPLIANT") @db.VarChar(30)
+  locationLat           Float?      @map("location_lat")
+  locationLng           Float?      @map("location_lng")
+  createdAt             DateTime    @default(now()) @map("created_at") @db.Timestamp(6)
+  inspector             User?       @relation(fields: [inspectorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  product               Product?    @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  violations            Violation[]
+  reports               Report[]
+
+  @@index([createdAt], map: "ix_inspections_created_at")
+  @@index([inspectorId], map: "ix_inspections_inspector_id")
+  @@index([productId], map: "ix_inspections_product_id")
+  @@index([status], map: "ix_inspections_status")
+  @@map("inspections")
+}
+
+model Violation {
+  id           String     @id @default(uuid()) @db.VarChar(36)
+  inspectionId String     @map("inspection_id") @db.VarChar(36)
+  ruleCode     String     @map("rule_code") @db.VarChar(50)
+  severity     String     @default("MAJOR") @db.VarChar(20)
+  title        String     @db.VarChar(150)
+  description  String     @db.VarChar(500)
+  evidenceBbox Json?      @map("evidence_bbox") @db.Json
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamp(6)
+  inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([inspectionId], map: "ix_violations_inspection_id")
+  @@index([ruleCode], map: "ix_violations_rule_code")
+  @@map("violations")
+}
+
+model ComplianceRule {
+  id             String   @id @db.VarChar(50)
+  fieldName      String   @map("field_name") @db.VarChar(100)
+  description    String?  @db.VarChar(255)
+  required       Boolean  @default(true)
+  expectedFormat String?  @map("expected_format") @db.VarChar(255)
+  minFontSizeMm  Float    @default(1.0) @map("min_font_size_mm")
+  regexPattern   String?  @map("regex_pattern") @db.VarChar(255)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  @@map("compliance_rules")
+}
+
+model Report {
+  id            String      @id @default(uuid()) @db.VarChar(36)
+  inspectionId  String?     @map("inspection_id") @db.VarChar(36)
+  inspection    Inspection? @relation(fields: [inspectionId], references: [id], onDelete: SetNull)
+  generatedById String?     @map("generated_by_id") @db.VarChar(36)
+  generatedBy   User?       @relation(fields: [generatedById], references: [id], onDelete: SetNull)
+  reportType    String      @default("INSPECTION_SUMMARY") @map("report_type") @db.VarChar(50)
+  content       Json?       @db.Json
+  fileUrl       String?     @map("file_url") @db.VarChar(500)
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamp(6)
+
+  @@map("reports")
+}
