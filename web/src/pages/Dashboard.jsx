@@ -4,28 +4,41 @@ import api from '../services/api';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 
 export default function Dashboard() {
-  const [user, setUser] = useState(null);
-  const [inspections, setInspections] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Seed from cache synchronously (fresh or stale) so revisiting the page
+  // never flashes a skeleton, then revalidate in the background.
+  const [user, setUser] = useState(() => api.peekMe()?.data?.user || api.getUser());
+  const [inspections, setInspections] = useState(() => api.peekInspections(1, 5)?.data?.items ?? []);
+  const [loading, setLoading] = useState(() => !api.peekInspections(1, 5));
 
   useEffect(() => {
-    loadData();
+    const unsubscribeMe = api.subscribeMe((d) => {
+      if (d?.user) setUser(d.user);
+    });
+    const unsubscribeInspections = api.subscribeInspections(1, 5, (d) => {
+      setInspections(d?.items ?? []);
+    });
+
+    // Load profile and inspections independently — a failure in one should
+    // not blank out the other.
+    api
+      .getMe()
+      .then((userData) => {
+        setUser(userData.user);
+        api.setUser(userData.user);
+      })
+      .catch((error) => console.error('Failed to load profile:', error));
+
+    api
+      .getInspections(1, 5)
+      .then((inspectionsData) => setInspections(inspectionsData.items || []))
+      .catch((error) => console.error('Failed to load inspections:', error))
+      .finally(() => setLoading(false));
+
+    return () => {
+      unsubscribeMe();
+      unsubscribeInspections();
+    };
   }, []);
-
-  const loadData = async () => {
-    try {
-      const userData = await api.getMe();
-      setUser(userData.user);
-      api.setUser(userData.user);
-
-      const inspectionsData = await api.getInspections(1, 5);
-      setInspections(inspectionsData.items || []);
-    } catch (error) {
-      console.error('Error:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const stats = {
     totalScans: inspections.length,
@@ -234,7 +247,7 @@ export default function Dashboard() {
                   <span className="material-symbols-outlined text-primary text-[40px]">cloud_upload</span>
                 </div>
                 <h3 className="font-bold text-slate-900 mb-2 text-lg">Drop packaging image here</h3>
-                <p className="text-sm text-slate-600">or click to browse • JPG, PNG, PDF up to 10MB</p>
+                <p className="text-sm text-slate-600">or click to browse • JPG, PNG, WEBP up to 10MB</p>
               </div>
             </div>
           </Link>
@@ -281,12 +294,14 @@ export default function Dashboard() {
                         {inspection.productName || 'Compliance Scan'}
                       </p>
                       <p className="text-xs text-slate-600 mt-0.5">
-                        {new Date(inspection.scannedAt || inspection.createdAt).toLocaleDateString('en-IN', { 
-                          day: 'numeric', 
-                          month: 'short',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
+                        {inspection.createdAt
+                          ? new Date(inspection.createdAt).toLocaleDateString('en-IN', {
+                              day: 'numeric',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })
+                          : '—'}
                       </p>
                     </div>
                   </Link>
@@ -345,11 +360,13 @@ export default function Dashboard() {
                         </div>
                       </td>
                       <td className="px-7 py-5 text-sm text-slate-600">
-                        {new Date(inspection.scannedAt || inspection.createdAt).toLocaleDateString('en-IN', { 
-                          day: 'numeric', 
-                          month: 'short', 
-                          year: 'numeric' 
-                        })}
+                        {inspection.createdAt
+                          ? new Date(inspection.createdAt).toLocaleDateString('en-IN', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric'
+                            })
+                          : '—'}
                       </td>
                       <td className="px-7 py-5">
                         <span className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold ${
@@ -364,7 +381,7 @@ export default function Dashboard() {
                         </span>
                       </td>
                       <td className="px-7 py-5 text-sm font-bold text-slate-900">
-                        {inspection.violations || 0}
+                        {inspection.violationsCount ?? 0}
                       </td>
                       <td className="px-7 py-5">
                         <Link to={`/dashboard/inspections/${inspection.id}`} className="text-primary font-bold text-sm hover:underline">

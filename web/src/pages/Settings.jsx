@@ -21,7 +21,7 @@ export default function Settings() {
       setUser(updated.user);
       setMessage('Profile updated successfully!');
     } catch (err) {
-      setMessage('Failed to update profile');
+      setMessage(err.message || 'Failed to update profile');
     } finally {
       setSaving(false);
     }

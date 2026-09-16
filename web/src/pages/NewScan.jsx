@@ -13,14 +13,21 @@ export default function NewScan() {
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef(null);
 
+  const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp'];
+
   const handleFile = (selectedFile) => {
     setError('');
-    if (selectedFile && selectedFile.size <= 10 * 1024 * 1024) {
-      setFile(selectedFile);
-      setPreview(URL.createObjectURL(selectedFile));
-    } else {
-      setError('File must be under 10MB');
+    if (!selectedFile) return;
+    if (!ACCEPTED_IMAGE_TYPES.includes(selectedFile.type)) {
+      setError('Unsupported file type. Please upload a JPG, PNG, WEBP, GIF or BMP image.');
+      return;
     }
+    if (selectedFile.size > 10 * 1024 * 1024) {
+      setError('File must be under 10MB');
+      return;
+    }
+    setFile(selectedFile);
+    setPreview(URL.createObjectURL(selectedFile));
   };
 
   const handleDrop = (e) => {
@@ -36,17 +43,15 @@ export default function NewScan() {
     setError('');
 
     try {
-      const progressInterval = setInterval(() => {
-        setProgress(prev => Math.min(prev + 10, 90));
-      }, 200);
-
-      const result = await api.uploadImage(file);
-      clearInterval(progressInterval);
+      // Real upload progress comes from the api layer's XHR progress events.
+      const result = await api.uploadImage(file, setProgress);
       setProgress(100);
 
-      setTimeout(() => {
-        navigate(`/dashboard/inspections/${result.scan_id || result.scanId || result.id}`);
-      }, 500);
+      const scanId = result?.scan_id || result?.scanId || result?.id;
+      if (!scanId) {
+        throw new Error('Scan completed but no scan ID was returned');
+      }
+      navigate(`/dashboard/inspections/${scanId}`);
     } catch (err) {
       setError(err.message || 'Upload failed');
       setUploading(false);
@@ -78,7 +83,7 @@ export default function NewScan() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,.pdf"
+                accept="image/jpeg,image/png,image/webp,image/gif,image/bmp"
                 className="hidden"
                 onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])}
               />
@@ -89,7 +94,7 @@ export default function NewScan() {
               <p className="text-on-surface-variant mb-6">or click to browse from your device</p>
               <div className="inline-flex items-center gap-2 px-4 py-2 bg-surface-container-low rounded-lg text-sm text-on-surface-variant">
                 <span className="material-symbols-outlined text-[16px]">info</span>
-                Supports JPG, PNG, PDF • Max 10MB
+                Supports JPG, PNG, WEBP, GIF, BMP • Max 10MB
               </div>
             </div>
           ) : (

@@ -4,20 +4,29 @@ import api from '../services/api';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 
 export default function Inspections() {
-  const [inspections, setInspections] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Seed from cache synchronously (fresh or stale) so revisiting the page
+  // never flashes a skeleton, then revalidate in the background.
+  const [inspections, setInspections] = useState(() => api.peekInspections(1, 100)?.data?.items ?? []);
+  const [loading, setLoading] = useState(() => !api.peekInspections(1, 100));
+  const [error, setError] = useState('');
   const [filter, setFilter] = useState('all');
 
   useEffect(() => {
+    const unsubscribe = api.subscribeInspections(1, 100, (d) => {
+      setInspections(d?.items ?? []);
+    });
     loadInspections();
+    return unsubscribe;
   }, []);
 
   const loadInspections = async () => {
     try {
       const data = await api.getInspections(1, 100);
       setInspections(data.items || []);
-    } catch (error) {
-      console.error(error);
+      setError('');
+    } catch (err) {
+      console.error(err);
+      setError(err.message || 'Failed to load inspections');
     } finally {
       setLoading(false);
     }
@@ -62,6 +71,16 @@ export default function Inspections() {
           <div className="space-y-3">
             {[1,2,3,4,5].map(i => <div key={i} className="h-20 bg-surface-container-low rounded-xl animate-pulse"></div>)}
           </div>
+        ) : error && filtered.length === 0 ? (
+          <div className="bg-surface-container-lowest rounded-2xl p-16 text-center border border-error/30">
+            <span className="material-symbols-outlined text-6xl text-error/50 mb-4 block">wifi_off</span>
+            <h3 className="text-xl font-semibold text-on-surface mb-2">Could not load inspections</h3>
+            <p className="text-on-surface-variant mb-6">{error}</p>
+            <button onClick={loadInspections} className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl font-medium hover:bg-primary-container transition-all">
+              <span className="material-symbols-outlined text-[20px]">refresh</span>
+              Retry
+            </button>
+          </div>
         ) : filtered.length === 0 ? (
           <div className="bg-surface-container-lowest rounded-2xl p-16 text-center border border-outline-variant/30">
             <span className="material-symbols-outlined text-6xl text-on-surface-variant/30 mb-4 block">fact_check</span>
@@ -75,7 +94,19 @@ export default function Inspections() {
             </Link>
           </div>
         ) : (
-          <div className="bg-surface-container-lowest rounded-2xl shadow-sm border border-outline-variant/30 overflow-hidden">
+          <>
+            {error && (
+              <div className="mb-4 flex items-center justify-between gap-3 p-3 rounded-xl bg-error-container/60 border border-error/30">
+                <p className="text-sm text-on-error-container flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[18px]">wifi_off</span>
+                  Showing saved results — refresh failed: {error}
+                </p>
+                <button onClick={loadInspections} className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-error text-white text-xs font-semibold hover:opacity-90 transition-all">
+                  Retry
+                </button>
+              </div>
+            )}
+            <div className="bg-surface-container-lowest rounded-2xl shadow-sm border border-outline-variant/30 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-surface-container-low">
@@ -99,7 +130,9 @@ export default function Inspections() {
                         </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-on-surface-variant">
-                        {new Date(inspection.scannedAt || inspection.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        {inspection.createdAt
+                          ? new Date(inspection.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                          : '—'}
                       </td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold ${
@@ -113,7 +146,7 @@ export default function Inspections() {
                           {inspection.status === 'compliant' ? 'Compliant' : inspection.status === 'pending' ? 'Pending' : 'Non-Compliant'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-sm font-medium text-on-surface">{inspection.violations || 0}</td>
+                      <td className="px-6 py-4 text-sm font-medium text-on-surface">{inspection.violationsCount ?? 0}</td>
                       <td className="px-6 py-4">
                         <Link to={`/dashboard/inspections/${inspection.id}`} className="text-primary font-medium text-sm hover:underline">View Details</Link>
                       </td>
@@ -123,6 +156,7 @@ export default function Inspections() {
               </table>
             </div>
           </div>
+          </>
         )}
 
       </div>

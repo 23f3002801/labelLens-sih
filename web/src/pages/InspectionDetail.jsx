@@ -5,19 +5,26 @@ import DashboardLayout from '../components/dashboard/DashboardLayout';
 
 export default function InspectionDetail() {
   const { id } = useParams();
-  const [inspection, setInspection] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Seed from cache synchronously (fresh or stale) so revisiting a detail
+  // page never flashes a skeleton, then revalidate in the background.
+  const [inspection, setInspection] = useState(() => api.peekInspection(id)?.data ?? null);
+  const [loading, setLoading] = useState(() => !api.peekInspection(id));
+  const [error, setError] = useState('');
 
   useEffect(() => {
+    const unsubscribe = api.subscribeInspection(id, (d) => setInspection(d ?? null));
     loadInspection();
+    return unsubscribe;
   }, [id]);
 
   const loadInspection = async () => {
     try {
       const data = await api.getInspection(id);
       setInspection(data);
-    } catch (error) {
-      console.error(error);
+      setError('');
+    } catch (err) {
+      console.error(err);
+      setError(err.message || 'Failed to load inspection');
     } finally {
       setLoading(false);
     }
@@ -62,12 +69,12 @@ export default function InspectionDetail() {
         {!inspection ? (
           <div className="bg-surface-container-lowest rounded-2xl p-16 text-center border border-outline-variant/30">
             <span className="material-symbols-outlined text-6xl text-on-surface-variant/30 mb-4 block">search_off</span>
-            <h3 className="text-xl font-semibold text-on-surface mb-2">Inspection not found</h3>
+            <h3 className="text-xl font-semibold text-on-surface mb-2">{error || 'Inspection not found'}</h3>
             <Link to="/dashboard/inspections" className="text-primary font-medium hover:underline">Back to inspections</Link>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
+
             {/* Image */}
             <div className="lg:col-span-2 bg-surface-container-lowest rounded-2xl p-6 shadow-sm border border-outline-variant/30">
               <h3 className="font-semibold text-on-surface mb-4">Scanned Image</h3>
@@ -88,22 +95,26 @@ export default function InspectionDetail() {
                   <div>
                     <p className="text-xs text-on-surface-variant uppercase tracking-wider mb-1">Date</p>
                     <p className="font-medium text-on-surface">
-                      {new Date(inspection.scannedAt || inspection.createdAt).toLocaleString('en-IN')}
+                      {inspection.createdAt ? new Date(inspection.createdAt).toLocaleString('en-IN') : '—'}
                     </p>
                   </div>
                   <div>
                     <p className="text-xs text-on-surface-variant uppercase tracking-wider mb-1">Status</p>
-                    <p className="font-medium text-on-surface capitalize">{inspection.status}</p>
+                    <p className="font-medium text-on-surface capitalize">{inspection.status.replace(/_/g, ' ')}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-on-surface-variant uppercase tracking-wider mb-1">Compliance Score</p>
+                    <p className="font-medium text-on-surface">{Math.round(inspection.complianceScore ?? 0)}%</p>
                   </div>
                   <div>
                     <p className="text-xs text-on-surface-variant uppercase tracking-wider mb-1">Violations</p>
-                    <p className="font-medium text-on-surface">{inspection.violations || 0}</p>
+                    <p className="font-medium text-on-surface">{inspection.violations?.length ?? 0}</p>
                   </div>
                 </div>
               </div>
 
               {/* Violations List */}
-              {inspection.violations && inspection.violations.length > 0 && (
+              {inspection.violations?.length > 0 && (
                 <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-sm border border-error/30">
                   <h3 className="font-semibold text-on-surface mb-4 flex items-center gap-2">
                     <span className="material-symbols-outlined text-error text-[20px]">warning</span>
@@ -111,8 +122,21 @@ export default function InspectionDetail() {
                   </h3>
                   <div className="space-y-2">
                     {inspection.violations.map((v, idx) => (
-                      <div key={idx} className="p-3 rounded-lg bg-error-container/50 border border-error/20">
-                        <p className="text-sm font-medium text-on-error-container">{v.message || v}</p>
+                      <div key={v.id ?? idx} className="p-3 rounded-lg bg-error-container/50 border border-error/20">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-medium text-on-error-container">{v.title}</p>
+                          {v.severity && (
+                            <span className="flex-shrink-0 px-2 py-0.5 rounded-full bg-error/10 text-error text-[10px] font-bold uppercase tracking-wide">
+                              {v.severity.replace(/_/g, ' ')}
+                            </span>
+                          )}
+                        </div>
+                        {v.description && (
+                          <p className="text-xs text-on-error-container/80 mt-1">{v.description}</p>
+                        )}
+                        {v.ruleCode && (
+                          <p className="text-[10px] text-on-error-container/60 mt-1 font-mono">{v.ruleCode}</p>
+                        )}
                       </div>
                     ))}
                   </div>

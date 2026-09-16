@@ -1,5 +1,17 @@
 const FASTAPI_BASE_URL = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
 
+// Timeouts (ms) so a hung FastAPI process fails fast instead of leaving the
+// client request open indefinitely.
+const OCR_TIMEOUT_MS = parseInt(process.env.FASTAPI_OCR_TIMEOUT_MS, 10) || 60_000;
+const EVAL_TIMEOUT_MS = parseInt(process.env.FASTAPI_EVAL_TIMEOUT_MS, 10) || 30_000;
+const VIDEO_TIMEOUT_MS = parseInt(process.env.FASTAPI_VIDEO_TIMEOUT_MS, 10) || 180_000;
+
+function timeoutError(operation, status) {
+  return new Error(
+    `FastAPI ${operation} timed out after ${Math.round(status / 1000)}s`
+  );
+}
+
 /**
  * Call FastAPI stateless /api/v1/ocr/scan
  */
@@ -11,6 +23,10 @@ async function runOcr(imageBuffer, filename = "label.jpg") {
   const response = await fetch(url, {
     method: "POST",
     body: formData,
+    signal: AbortSignal.timeout(OCR_TIMEOUT_MS),
+  }).catch((err) => {
+    if (err.name === "TimeoutError") throw timeoutError("OCR", OCR_TIMEOUT_MS);
+    throw err;
   });
 
   if (!response.ok) {
@@ -34,6 +50,10 @@ async function runOcrBase64(base64Image) {
       enhance: true,
       include_annotated_image: true,
     }),
+    signal: AbortSignal.timeout(OCR_TIMEOUT_MS),
+  }).catch((err) => {
+    if (err.name === "TimeoutError") throw timeoutError("base64 OCR", OCR_TIMEOUT_MS);
+    throw err;
   });
 
   if (!response.ok) {
@@ -53,6 +73,10 @@ async function evaluateOcrCompliance(ocrResult) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(ocrResult),
+    signal: AbortSignal.timeout(EVAL_TIMEOUT_MS),
+  }).catch((err) => {
+    if (err.name === "TimeoutError") throw timeoutError("evaluate-ocr", EVAL_TIMEOUT_MS);
+    throw err;
   });
 
   if (!response.ok) {
@@ -74,6 +98,10 @@ async function evaluateImageCompliance(imageBuffer, filename = "label.jpg") {
   const response = await fetch(url, {
     method: "POST",
     body: formData,
+    signal: AbortSignal.timeout(EVAL_TIMEOUT_MS),
+  }).catch((err) => {
+    if (err.name === "TimeoutError") throw timeoutError("evaluate-image", EVAL_TIMEOUT_MS);
+    throw err;
   });
 
   if (!response.ok) {
@@ -95,6 +123,10 @@ async function unwrapVideo(videoBuffer, filename = "upload.mp4") {
   const response = await fetch(url, {
     method: "POST",
     body: formData,
+    signal: AbortSignal.timeout(VIDEO_TIMEOUT_MS),
+  }).catch((err) => {
+    if (err.name === "TimeoutError") throw timeoutError("video unwrap", VIDEO_TIMEOUT_MS);
+    throw err;
   });
 
   if (!response.ok) {
