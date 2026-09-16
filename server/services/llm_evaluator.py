@@ -2,6 +2,7 @@ import os
 import re
 import json
 import time
+import uuid
 import logging
 from typing import Optional, Dict, Any, List
 import httpx
@@ -61,19 +62,19 @@ def verify_grounding(exact_quote: Optional[str], raw_text: str) -> bool:
     return False
 
 
-def find_matching_bbox(exact_quote: Optional[str], text_blocks: List[TextBlock]) -> Optional[BBox]:
-    """Finds the bounding box of the OCR text block that best matches the exact_quote."""
+def find_matching_block(exact_quote: Optional[str], text_blocks: List[TextBlock]) -> Optional[TextBlock]:
+    """Finds the OCR text block that best matches the exact_quote."""
     if not exact_quote or not text_blocks:
         return None
 
     norm_quote = normalize_for_grounding(exact_quote)
-    best_match_bbox = None
+    best_match_block = None
     best_score = 0.0
 
     for block in text_blocks:
         norm_block = normalize_for_grounding(block.text)
         if norm_quote in norm_block or norm_block in norm_quote:
-            return block.bbox
+            return block
 
         # Token overlap score
         q_words = set(norm_quote.split())
@@ -82,9 +83,15 @@ def find_matching_bbox(exact_quote: Optional[str], text_blocks: List[TextBlock])
             overlap = len(q_words & b_words) / float(len(q_words))
             if overlap > best_score and overlap >= 0.5:
                 best_score = overlap
-                best_match_bbox = block.bbox
+                best_match_block = block
 
-    return best_match_bbox
+    return best_match_block
+
+
+def find_matching_bbox(exact_quote: Optional[str], text_blocks: List[TextBlock]) -> Optional[BBox]:
+    """Finds the bounding box of the OCR text block that best matches the exact_quote."""
+    block = find_matching_block(exact_quote, text_blocks)
+    return block.bbox if block else None
 
 
 class LLMComplianceEvaluator:
@@ -277,21 +284,31 @@ class LLMComplianceEvaluator:
                         ev.severity = "CRITICAL"
                         ev.explanation = f"Declaration was not verifiable in actual label text ({ev.explanation})"
 
-                bbox = find_matching_bbox(ev.exact_quote, ocr_result.text_blocks) or BBox(
+                matched_block = find_matching_block(ev.exact_quote, ocr_result.text_blocks)
+                bbox = matched_block.bbox if matched_block else BBox(
                     x_min=0, y_min=0, x_max=0, y_max=0
                 )
 
                 if ev.status == "PASS":
+                    confidence = round(matched_block.confidence, 2) if (matched_block and matched_block.confidence) else 0.95
+                    font_size_px = (
+                        matched_block.size.estimated_font_size_px
+                        if (matched_block and hasattr(matched_block, "size") and matched_block.size and matched_block.size.estimated_font_size_px)
+                        else 20.0
+                    )
+                    img_h = ocr_result.image_metadata.height if (ocr_result and ocr_result.image_metadata and ocr_result.image_metadata.height) else 1000
+                    font_size_mm_est = round(max((font_size_px / max(img_h, 1)) * 150.0, 1.0), 1)
+
                     found_declarations.append(
                         DeclarationFound(
                             id=rid,
                             field_name=field_name,
                             extracted_text=ev.exact_quote or ev.extracted_value or "",
                             parsed_value=ev.extracted_value,
-                            confidence=0.95,
+                            confidence=confidence,
                             bbox=bbox,
-                            font_size_px=20.0,
-                            font_size_mm_est=2.0,
+                            font_size_px=font_size_px,
+                            font_size_mm_est=font_size_mm_est,
                             format_valid=True,
                             size_valid=True,
                             status="COMPLIANT",
@@ -314,7 +331,7 @@ class LLMComplianceEvaluator:
                         )
                     violations.append(
                         ViolationDetail(
-                            id=f"viol_llm_{rid}_{int(time.time())}",
+                            id=f"viol_llm_{rid}_{uuid.uuid4().hex[:12]}",
                             rule_id=rid,
                             field_name=field_name,
                             violation_type=ev.violation_type or "missing",

@@ -1,4 +1,4 @@
-﻿import json
+import json
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -14,7 +14,9 @@ CHUNKS_FILE = DATA_DIR / "extracted_english" / "all_extracted_english.json"
 class LegalCitationService:
     def __init__(self):
         self._citations: Dict[str, LegalCitation] = {}
+        self._chunks: List[Dict[str, Any]] = []
         self._load_citations()
+        self._load_chunks()
 
     def _load_citations(self):
         """Loads statutory citations mapped from official Legal Metrology / FSSAI Gazettes."""
@@ -39,6 +41,17 @@ class LegalCitationService:
         except Exception as e:
             logger.error(f"Failed to load statutory citations: {e}")
 
+    def _load_chunks(self):
+        """Loads statutory corpus chunks into memory once for fast lookup."""
+        if not CHUNKS_FILE.exists():
+            return
+        try:
+            with open(CHUNKS_FILE, "r", encoding="utf-8") as f:
+                self._chunks = json.load(f)
+            logger.info(f"Loaded {len(self._chunks)} statutory corpus chunks.")
+        except Exception as e:
+            logger.error(f"Failed to load statutory corpus chunks: {e}")
+
     def get_citation(self, rule_id: str) -> Optional[LegalCitation]:
         """Returns the specific Act, Rule number, and statutory quote for a given rule_id."""
         if not rule_id:
@@ -56,13 +69,17 @@ class LegalCitationService:
 
     def search_statutory_corpus(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
         """Searches the 1,100+ extracted statutory pages for matching legal provisions."""
-        if not CHUNKS_FILE.exists() or not query:
+        if not query:
+            return []
+
+        if not self._chunks:
+            self._load_chunks()
+
+        if not self._chunks:
             return []
 
         try:
-            with open(CHUNKS_FILE, "r", encoding="utf-8") as f:
-                chunks = json.load(f)
-
+            chunks = self._chunks
             q_terms = [t.lower() for t in query.split() if len(t) > 2]
             scored = []
             for c in chunks:

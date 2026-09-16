@@ -5,7 +5,7 @@ from main import app
 from schemas.ocr import OCRScanResult, TextBlock, BBox, BlockSize, ImageMetadata
 from services.rag.citation_service import get_citation_service, LegalCitationService
 from services.compliance_evaluator import evaluate_label_compliance
-from database import SessionLocal
+from database import SessionLocal, init_db
 from models import Inspection, Violation
 
 
@@ -144,6 +144,7 @@ def test_api_citations_endpoints(client):
 
 def test_violation_model_citation_persistence():
     """Verify that Violation SQLAlchemy model persists citation column in database."""
+    init_db()
     db = SessionLocal()
     try:
         inspection = Inspection(

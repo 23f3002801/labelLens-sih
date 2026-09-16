@@ -1,6 +1,7 @@
 import re
 import io
 import time
+import uuid
 import base64
 import logging
 from typing import List, Dict, Any, Optional
@@ -146,7 +147,7 @@ def _has_keyword(norm: str, keywords: List[str]) -> bool:
     word-boundary matching misses every glued OCR token; this covers both."""
     flat_norm = despace(norm)
     for keyword in keywords:
-        if re.search(r"" + re.escape(keyword) + r"", norm):
+        if re.search(r"\b" + re.escape(keyword) + r"\b", norm):
             return True
         flat_keyword = despace(keyword)
         if (
@@ -256,7 +257,7 @@ class ComplianceEvaluator:
                             rule12_cit = citation_svc.get_citation("rule_12_metric_symbol")
                             if not any(v.rule_id == "net_quantity" and v.violation_type == "wrong_format" for v in llm_result.summary.whats_wrong):
                                 llm_result.summary.whats_wrong.append(ViolationDetail(
-                                    id=f"viol_rule12_net_qty_{int(time.time())}",
+                                    id=f"viol_rule12_net_qty_{uuid.uuid4().hex[:12]}",
                                     rule_id="net_quantity",
                                     field_name="Net Quantity",
                                     violation_type="wrong_format",
@@ -400,7 +401,7 @@ class ComplianceEvaluator:
                 missing_declarations.append(missing_decl)
 
                 viol = ViolationDetail(
-                    id=f"viol_missing_{rule_id}_{int(time.time())}",
+                    id=f"viol_missing_{rule_id}_{uuid.uuid4().hex[:12]}",
                     rule_id=rule_id,
                     field_name=rule.get("field_name", rule_id),
                     violation_type="missing",
@@ -629,7 +630,7 @@ class ComplianceEvaluator:
             if not size_valid:
                 viols.append(
                     ViolationDetail(
-                        id=f"viol_font_{rule_id}_{int(time.time())}",
+                        id=f"viol_font_{rule_id}_{uuid.uuid4().hex[:12]}",
                         rule_id=rule_id,
                         field_name=field_name,
                         violation_type="size_below_standard",

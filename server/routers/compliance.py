@@ -1,6 +1,6 @@
 import base64
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional
 from fastapi import APIRouter, File, UploadFile, Query, HTTPException, status, Depends
 from sqlalchemy.orm import Session
 
@@ -10,8 +10,6 @@ from services.ocr_service import get_ocr_service
 from services.compliance_evaluator import evaluate_label_compliance
 from services.rule_loader import (
     load_rules_from_file,
-    sync_rules_to_db,
-    get_rules_from_db,
     get_rules_for_category,
 )
 from services.rag.citation_service import get_citation_service

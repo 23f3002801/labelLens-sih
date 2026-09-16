@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, String, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from database import Base
@@ -15,6 +15,6 @@ class Violation(Base):
     description = Column(String(500), nullable=False)
     evidence_bbox = Column(JSON, nullable=True) # Bounding box coordinates on image
     citation = Column(JSON, nullable=True) # Official Act, Rule, and statutory quote
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     inspection = relationship("Inspection", back_populates="violations")
