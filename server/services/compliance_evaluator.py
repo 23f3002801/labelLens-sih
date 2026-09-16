@@ -16,6 +16,7 @@ from schemas.compliance import (
 )
 from services.rule_loader import get_rules_from_db, get_rules_for_category
 from services.llm_evaluator import get_llm_evaluator
+from services.rag.citation_service import get_citation_service
 
 logger = logging.getLogger("compliance_evaluator")
 
@@ -73,6 +74,18 @@ CATEGORY_RULE_PATTERNS = {
     "unit_sale_price": {
         "keywords": ["UNIT SALE PRICE", "UNIT PRICE", "USP", "PRICE PER"],
         "regex": r"(?:USP|UNIT\s*SALE\s*PRICE|UNIT\s*PRICE)[^\d]*[\d,]+(?:\.\d{1,2})?"
+    },
+    "pan_masala_warning": {
+        "keywords": ["CHEWING OF PAN MASALA", "INJURIOUS TO HEALTH", "PAN MASALA", "GUTKHA", "HEALTH WARNING"],
+        "regex": r"(?:CHEWING\s+OF\s+PAN\s+MASALA|INJURIOUS\s+TO\s+HEALTH)"
+    },
+    "qr_code_declaration": {
+        "keywords": ["SCAN QR", "QR CODE", "SCAN FOR DETAILS", "SCAN FOR INFORMATION"],
+        "regex": r"(?:SCAN\s+(?:QR|CODE|FOR))"
+    },
+    "bee_star_rating": {
+        "keywords": ["BEE", "ENERGY STAR", "STAR RATING", "ELECTRICITY CONSUMPTION", "KWH/YEAR", "UNITS/YEAR", "ENERGY EFFICIENCY", "STAR LABEL"],
+        "regex": r"(?:BEE\s+STAR|STAR\s+RATING|KWH\/YEAR|UNITS\/YEAR|ELECTRICITY\s+CONSUMPTION)"
     }
 }
 
@@ -227,6 +240,41 @@ class ComplianceEvaluator:
                 ruleset=self.ruleset
             )
             if llm_result is not None:
+                # Attach official statutory legal citations to LLM findings
+                citation_svc = get_citation_service()
+                for d in llm_result.summary.what_was_found:
+                    if not d.citation:
+                        d.citation = citation_svc.get_citation(d.id)
+                    # Enforce Rule 12 check on net quantity
+                    if d.id == "net_quantity":
+                        t_upper = flatten_text(d.extracted_text)
+                        illegal_match = re.search(r'\b(GMS|GM|G\.|GM\.|GMS\.|KGS|KG\.|KILO|KILOS|LTR|LTRS|LTR\.|LIT|LITERS|LITRES|MLS|ML\.|M\.L\.|MTS|MTR|MTRS)\b', t_upper)
+                        if illegal_match:
+                            d.format_valid = False
+                            d.status = "FORMAT_ERROR"
+                            illegal_sym = illegal_match.group(0)
+                            rule12_cit = citation_svc.get_citation("rule_12_metric_symbol")
+                            if not any(v.rule_id == "net_quantity" and v.violation_type == "wrong_format" for v in llm_result.summary.whats_wrong):
+                                llm_result.summary.whats_wrong.append(ViolationDetail(
+                                    id=f"viol_rule12_net_qty_{int(time.time())}",
+                                    rule_id="net_quantity",
+                                    field_name="Net Quantity",
+                                    violation_type="wrong_format",
+                                    severity="MAJOR",
+                                    description=f"Net Quantity uses illegal non-standard unit symbol '{illegal_sym}'. Legal Metrology Rule 12 & Third Schedule strictly mandates standard SI symbols ('g', 'kg', 'ml', 'L', 'N').",
+                                    evidence_bbox=d.bbox,
+                                    citation=rule12_cit
+                                ))
+                                llm_result.overall_result = "FAIL"
+                                llm_result.compliance_score = max(round(llm_result.compliance_score - 15.0, 1), 0.0)
+
+                for m in llm_result.summary.whats_missing:
+                    if not m.citation:
+                        m.citation = citation_svc.get_citation(m.id)
+                for v in llm_result.summary.whats_wrong:
+                    if not v.citation:
+                        v.citation = citation_svc.get_citation(v.rule_id)
+
                 if image_bytes:
                     evidence_b64 = self.generate_violation_evidence_image(
                         image_bytes,
@@ -362,6 +410,20 @@ class ComplianceEvaluator:
                 )
                 violations.append(viol)
 
+        # Step 2b: Attach official statutory legal citations to all declarations and violations
+        citation_svc = get_citation_service()
+        for decl in found_declarations:
+            if not decl.citation:
+                decl.citation = citation_svc.get_citation(decl.id)
+
+        for missing in missing_declarations:
+            if not missing.citation:
+                missing.citation = citation_svc.get_citation(missing.id)
+
+        for viol in violations:
+            if not viol.citation:
+                viol.citation = citation_svc.get_citation(viol.rule_id)
+
         # Step 3: Compute Compliance Score and Overall PASS/FAIL Status
         total_required = sum(1 for r in self.mandatory_rules if r.get("required", True))
         total_found_valid = sum(1 for d in found_declarations if d.format_valid and d.size_valid)
@@ -396,6 +458,7 @@ class ComplianceEvaluator:
                     "value": item.extracted_text,
                     "status": item.status,
                     "confidence": item.confidence,
+                    "citation": item.citation.model_dump() if item.citation else None,
                 }
                 for item in found_declarations
             ],
@@ -406,6 +469,7 @@ class ComplianceEvaluator:
                     "description": item.description,
                     "field_name": item.field_name,
                     "violation_type": item.violation_type,
+                    "citation": item.citation.model_dump() if item.citation else None,
                 }
                 for item in violations
             ],
@@ -713,19 +777,23 @@ class ComplianceEvaluator:
         t_upper = flatten_text(text)
         viols = []
 
-        # Check for non-standard unit symbols (e.g. gms, ltrs, kilo)
-        has_illegal_unit = bool(re.search(r'\b(GMS|LTRS|KILO|CTS)\b', t_upper))
-        format_valid = not has_illegal_unit
+        # Check for non-standard unit symbols prohibited under Rule 12 (e.g. gms, gm, g., Kgs, ltrs, mls, etc.)
+        illegal_match = re.search(r'\b(GMS|GM|G\.|GM\.|GMS\.|KGS|KG\.|KILO|KILOS|LTR|LTRS|LTR\.|LIT|LITERS|LITRES|MLS|ML\.|M\.L\.|MTS|MTR|MTRS)\b', t_upper)
+        format_valid = not bool(illegal_match)
 
-        if has_illegal_unit:
+        if illegal_match:
+            illegal_sym = illegal_match.group(0)
+            citation_svc = get_citation_service()
+            rule12_cit = citation_svc.get_citation("rule_12_metric_symbol")
             viols.append(ViolationDetail(
                 id=f"viol_net_qty_symbol_{block.id}",
                 rule_id="net_quantity",
                 field_name=self.rule_map.get("net_quantity", {}).get("field_name", "Net Quantity"),
                 violation_type="wrong_format",
                 severity="MAJOR",
-                description="Net Quantity uses non-standard unit symbol ('gms'/'ltrs'). Legal Metrology mandates standard SI units ('g', 'kg', 'ml', 'L', 'N').",
-                evidence_bbox=block.bbox
+                description=f"Net Quantity uses illegal non-standard unit symbol '{illegal_sym}'. Legal Metrology Rule 12 & Third Schedule strictly mandates standard SI symbols ('g', 'kg', 'ml', 'L', 'N').",
+                evidence_bbox=block.bbox,
+                citation=rule12_cit
             ))
 
         min_font = self._get_min_font_size("net_quantity", 1.0)

@@ -16,6 +16,7 @@ from schemas.compliance import (
     StructuredComplianceResult,
 )
 from schemas.llm_compliance import LLMRuleEvaluation, LLMComplianceResponse
+from services.rag.citation_service import get_citation_service
 
 logger = logging.getLogger("llm_evaluator")
 
@@ -94,9 +95,9 @@ class LLMComplianceEvaluator:
             or os.environ.get("LLM_API_KEY")
             or ""
         )
-        # Default backend is 'groq' if GROQ_API_KEY is present, otherwise checks LLM_BACKEND
-        default_backend = "groq" if self.api_key else "none"
-        self.backend = os.environ.get("LLM_BACKEND", default_backend).strip().lower()
+        # Require explicit LLM_BACKEND="groq" or "ollama" to activate remote LLM evaluation;
+        # otherwise use the high-speed deterministic compliance engine with statutory citations.
+        self.backend = os.environ.get("LLM_BACKEND", "none").strip().lower()
 
         # Groq OpenAI-compatible endpoint
         self.base_url = (
@@ -126,12 +127,14 @@ class LLMComplianceEvaluator:
             "You are an expert Legal Metrology Compliance Inspector for packaged commodities in India.\n"
             "Evaluate the provided OCR label text against India's Legal Metrology (Packaged Commodities) Rules, 2011 "
             "and applicable category-specific regulations.\n\n"
-            "CRITICAL ANTI-HALLUCINATION RULES:\n"
-            "1. You must evaluate based ONLY on the verbatim text extracted in the OCR scan.\n"
-            "2. For every rule you mark as 'PASS', you MUST copy the exact verbatim text into 'exact_quote'. Do NOT guess or invent text.\n"
-            "3. If a declaration is missing or not identifiable from the text, mark status='FAIL', violation_type='missing', exact_quote=null.\n"
-            "4. If a statutory exemption applies (e.g. food packages <= 10g exempt from nutritional info), mark status='EXEMPT'.\n"
-            "5. Return ONLY a valid JSON object matching the requested schema without any markdown formatting.\n\n"
+            "CRITICAL RULES:\n"
+            "1. Evaluate based ONLY on verbatim text from OCR scan.\n"
+            "2. For every rule marked 'PASS', copy the exact verbatim text into 'exact_quote'. Do NOT invent text.\n"
+            "3. If a mandatory declaration is missing, mark status='FAIL', violation_type='missing', exact_quote=null.\n"
+            "4. Net Quantity must strictly use standard SI metric units ('g', 'kg', 'ml', 'L', 'N'). If non-standard symbols ('gms', 'gm', 'ltrs', 'kgs') are used, mark status='FAIL', violation_type='wrong_format'.\n"
+            "5. If exempt (e.g. food packages <= 10g exempt from nutritional info), mark status='EXEMPT'.\n"
+            "6. Keep 'explanation' extremely concise (maximum 10-15 words).\n"
+            "7. Return ONLY a valid JSON object matching the requested schema without any markdown formatting.\n\n"
             "JSON Schema:\n"
             "{\n"
             '  "category": "string",\n'
@@ -207,7 +210,8 @@ class LLMComplianceEvaluator:
                 {"role": "user", "content": user_content}
             ],
             "response_format": {"type": "json_object"},
-            "temperature": 0.0
+            "temperature": 0.0,
+            "max_tokens": 800
         }
 
         try:
@@ -217,6 +221,15 @@ class LLMComplianceEvaluator:
                     headers=headers,
                     json=payload
                 )
+                # Rate limit retry with 3.5s backoff if 429 occurs
+                if resp.status_code == 429:
+                    logger.warning("Groq rate limit (429) encountered. Pausing 3.5s before retry...")
+                    time.sleep(3.5)
+                    resp = client.post(
+                        f"{self.base_url}/chat/completions",
+                        headers=headers,
+                        json=payload
+                    )
 
             if resp.status_code != 200:
                 logger.warning(
@@ -227,11 +240,17 @@ class LLMComplianceEvaluator:
                 return None
 
             data = resp.json()
-            raw_response_text = data["choices"][0]["message"]["content"]
+            raw_response_text = data["choices"][0]["message"]["content"].strip()
+            # Clean markdown JSON block formatting if present
+            if raw_response_text.startswith("```"):
+                raw_response_text = re.sub(r"^```(?:json)?\s*", "", raw_response_text)
+                raw_response_text = re.sub(r"\s*```$", "", raw_response_text)
+
             parsed = json.loads(raw_response_text)
             llm_resp = LLMComplianceResponse(**parsed)
 
-            # Grounding verification and ComplianceResult mapping
+            # Grounding verification, citation attachment, and ComplianceResult mapping
+            citation_svc = get_citation_service()
             rule_map = {r["id"]: r for r in ruleset.get("mandatory_declarations", [])}
             found_declarations: List[DeclarationFound] = []
             missing_declarations: List[DeclarationMissing] = []
@@ -241,6 +260,7 @@ class LLMComplianceEvaluator:
                 rid = ev.rule_id
                 rule_meta = rule_map.get(rid, {"field_name": rid})
                 field_name = rule_meta.get("field_name", rid)
+                citation = citation_svc.get_citation(rid)
 
                 # Anti-hallucination verification
                 if ev.status == "PASS" and ev.exact_quote:
@@ -274,7 +294,8 @@ class LLMComplianceEvaluator:
                             font_size_mm_est=2.0,
                             format_valid=True,
                             size_valid=True,
-                            status="COMPLIANT"
+                            status="COMPLIANT",
+                            citation=citation
                         )
                     )
                 elif ev.status == "EXEMPT":
@@ -287,7 +308,8 @@ class LLMComplianceEvaluator:
                                 id=rid,
                                 field_name=field_name,
                                 description=rule_meta.get("description", ""),
-                                required=rule_meta.get("required", True)
+                                required=rule_meta.get("required", True),
+                                citation=citation
                             )
                         )
                     violations.append(
@@ -298,7 +320,8 @@ class LLMComplianceEvaluator:
                             violation_type=ev.violation_type or "missing",
                             severity=ev.severity or "CRITICAL",
                             description=ev.explanation,
-                            evidence_bbox=bbox if (bbox.x_max > 0) else None
+                            evidence_bbox=bbox if (bbox.x_max > 0) else None,
+                            citation=citation
                         )
                     )
 
@@ -320,10 +343,11 @@ class LLMComplianceEvaluator:
                 compliance_score=score,
                 extracted_declarations=[
                     {
-                        "field_name": item.field_name,
+                        "field": item.field_name,
                         "value": item.extracted_text,
                         "status": item.status,
                         "confidence": item.confidence,
+                        "citation": item.citation.model_dump() if item.citation else None,
                     }
                     for item in found_declarations
                 ],
@@ -334,6 +358,7 @@ class LLMComplianceEvaluator:
                         "description": item.description,
                         "field_name": item.field_name,
                         "violation_type": item.violation_type,
+                        "citation": item.citation.model_dump() if item.citation else None,
                     }
                     for item in violations
                 ],

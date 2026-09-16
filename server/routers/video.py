@@ -11,7 +11,6 @@ from models import Inspection
 from services.cloudinary_service import upload_image as upload_image_to_cloudinary
 from routers.uploads import _process_scan
 from services.replay import serialize_inspection as _serialize_inspection_result
-from services.video_processing import UniversalLabelExtractor
 
 
 router = APIRouter(
@@ -29,6 +28,7 @@ def get_unwrapper():
     global _unwrapper
 
     if _unwrapper is None:
+        from services.video_processing import UniversalLabelExtractor
         _unwrapper = UniversalLabelExtractor()
 
     return _unwrapper

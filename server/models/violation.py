@@ -14,6 +14,7 @@ class Violation(Base):
     title = Column(String(150), nullable=False)
     description = Column(String(500), nullable=False)
     evidence_bbox = Column(JSON, nullable=True) # Bounding box coordinates on image
+    citation = Column(JSON, nullable=True) # Official Act, Rule, and statutory quote
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     inspection = relationship("Inspection", back_populates="violations")

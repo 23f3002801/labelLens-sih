@@ -46,6 +46,18 @@ def get_db():
 
 def init_db():
     """
-    Creates all defined database tables in the target database.
+    Creates all defined database tables in the target database and migrates missing columns.
     """
     Base.metadata.create_all(bind=engine)
+    # Lightweight schema auto-migration for newly added columns
+    try:
+        from sqlalchemy import inspect, text
+        inspector = inspect(engine)
+        if "violations" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("violations")]
+            if "citation" not in cols:
+                with engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE violations ADD COLUMN citation JSON"))
+                    conn.commit()
+    except Exception as e:
+        logger.warning(f"Database schema auto-migration warning: {e}")

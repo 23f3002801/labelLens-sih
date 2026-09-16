@@ -1,0 +1,218 @@
+{
+  "manufacturer_details": {
+    "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+    "rule_number": "Rule 6(1)(a)",
+    "section_title": "Name and Address of Manufacturer, Packer, or Importer",
+    "source_document": "G.S.R. 202(E) / G.S.R. 629(E)",
+    "page_number": 9,
+    "statutory_quote": "The name and complete address of the manufacturer, or where the manufacturer is not the packer, the name and complete address of the manufacturer and packer, or in case of imported packages, the name and complete address of the importer."
+  },
+  "net_quantity": {
+    "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+    "rule_number": "Rule 6(1)(b) & Rule 12",
+    "section_title": "Declaration of Net Quantity in Standard Metric Units",
+    "source_document": "G.S.R. 202(E) / G.S.R. 779(E)",
+    "page_number": 3,
+    "statutory_quote": "The net quantity, in terms of the standard unit of weight or measure, of the commodity contained in the package or where the commodity is packed or sold by number, the number or unit or piece or pair or set which represents the quantity shall be mentioned."
+  },
+  "mrp": {
+    "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+    "rule_number": "Rule 6(1)(e)",
+    "section_title": "Maximum Retail Price (MRP) Inclusive of All Taxes",
+    "source_document": "G.S.R. 779(E) dated 02.11.2021",
+    "page_number": 3,
+    "statutory_quote": "The maximum retail price at which the commodity in packaged form may be sold to the consumer, inclusive of all taxes, in Indian currency (e.g. MRP Rs. / ? xx.xx, inclusive of all taxes)."
+  },
+  "unit_sale_price": {
+    "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+    "rule_number": "Rule 6(11)",
+    "section_title": "Mandatory Declaration of Unit Sale Price",
+    "source_document": "G.S.R. 779(E) dated 02.11.2021",
+    "page_number": 3,
+    "statutory_quote": "The unit sale price shall be declared as 'Rs./? __ per g' for net qty < 1kg; 'Rs./? __ per kg' for net qty >= 1kg; 'Rs./? __ per ml' for net vol < 1L; 'Rs./? __ per litre' for net vol >= 1L; and 'Rs./? __ per number' for items sold by number."
+  },
+  "manufacture_date": {
+    "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+    "rule_number": "Rule 6(1)(c) & Rule 6(1)(d)",
+    "section_title": "Month and Year of Manufacture or Pre-packing and Best Before Date",
+    "source_document": "G.S.R. 629(E) / G.S.R. 779(E)",
+    "page_number": 10,
+    "statutory_quote": "The month and year in which the commodity is manufactured or pre-packed or imported, and if a commodity may become unfit for human consumption after a period of time, the 'best before' or 'use by date, month and year' shall also be mentioned."
+  },
+  "consumer_care": {
+    "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+    "rule_number": "Rule 6(2)",
+    "section_title": "Consumer Care Details for Consumer Grievance Redressal",
+    "source_document": "G.S.R. 202(E) / G.S.R. 629(E)",
+    "page_number": 4,
+    "statutory_quote": "Every package shall bear the name, address, telephone number, and e-mail address of the person who can be contacted by the consumer in case of a complaint or query."
+  },
+  "country_of_origin": {
+    "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+    "rule_number": "Rule 6(1)(aa)",
+    "section_title": "Country of Origin / Manufacture / Assembly",
+    "source_document": "G.S.R. 629(E) dated 23.06.2017",
+    "page_number": 10,
+    "statutory_quote": "The name of the country of origin or manufacture or assembly in case of imported products shall be mentioned on the package."
+  },
+  "qr_code_declaration": {
+    "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+    "rule_number": "Rule 6(1) Proviso & Rule 6(2) Proviso",
+    "section_title": "QR Code Declarations for Electronic Products",
+    "source_document": "G.S.R. 577(E) dated 14.07.2022",
+    "page_number": 2,
+    "statutory_quote": "In the case of an electronic product, the package shall declare the name of manufacturer/packer/importer on the package itself and inform consumers to scan the QR code for address, generic name, size, dimensions, and customer care details."
+  },
+  "fssai_license": {
+    "act_name": "Food Safety and Standards (Labelling and Display) Regulations, 2020",
+    "rule_number": "Regulation 5(4)",
+    "section_title": "FSSAI Logo and 14-Digit License Number",
+    "source_document": "FSSAI Notification F. No. 1-94/FSSAI/SP(L&C)/2017",
+    "page_number": 14,
+    "statutory_quote": "The FSSAI logo and 14-digit license number of the food business operator shall be displayed on the label of the food package in contrast color to the background."
+  },
+  "veg_nonveg_symbol": {
+    "act_name": "Food Safety and Standards (Labelling and Display) Regulations, 2020",
+    "rule_number": "Regulation 5(4)(c)",
+    "section_title": "Vegetarian and Non-Vegetarian Logo Declaration",
+    "source_document": "FSSAI Notification F. No. 1-94/FSSAI/SP(L&C)/2017",
+    "page_number": 16,
+    "statutory_quote": "Every package of vegetarian food shall bear a green color filled circle inside a square, and non-vegetarian food shall bear a brown color filled triangle inside a square on the principal display panel."
+  },
+  "nutritional_info": {
+    "act_name": "Food Safety and Standards (Labelling and Display) Regulations, 2020",
+    "rule_number": "Regulation 5(3)",
+    "section_title": "Mandatory Nutritional Information Declaration",
+    "source_document": "FSSAI Notification F. No. 1-94/FSSAI/SP(L&C)/2017",
+    "page_number": 8,
+    "statutory_quote": "Nutritional information per 100g or 100ml or per single serving: Energy (kcal), Protein (g), Carbohydrate (g), Total Sugars (g), Added Sugars (g), Total Fat (g), Saturated Fat (g), Trans Fat (g), and Sodium (mg)."
+  },
+  "ingredients_list": {
+    "act_name": "Food Safety and Standards (Labelling and Display) Regulations, 2020",
+    "rule_number": "Regulation 5(1)",
+    "section_title": "List of Ingredients in Descending Order",
+    "source_document": "FSSAI Notification F. No. 1-94/FSSAI/SP(L&C)/2017",
+    "page_number": 6,
+    "statutory_quote": "Ingredients shall be listed in descending order of their composition by weight or volume (m/m or v/v) at the time of manufacture of the food product."
+  },
+  "allergen_info": {
+    "act_name": "Food Safety and Standards (Labelling and Display) Regulations, 2020",
+    "rule_number": "Regulation 5(2)",
+    "section_title": "Mandatory Allergen Warning Statements",
+    "source_document": "FSSAI Notification F. No. 1-94/FSSAI/SP(L&C)/2017",
+    "page_number": 7,
+    "statutory_quote": "Foods containing cereals with gluten, crustacea, fish, eggs, peanuts, soybeans, milk, tree nuts shall declare allergens as 'Contains: <allergen>' or 'May contain traces of...'."
+  },
+  "mfg_license_no": {
+    "act_name": "Drugs and Cosmetics Act, 1940 & Cosmetics Rules, 2020",
+    "rule_number": "Rule 34(1)(a)",
+    "section_title": "Manufacturing License Number for Cosmetics",
+    "source_document": "Cosmetics Rules, 2020 (G.S.R. 718(E))",
+    "page_number": 22,
+    "statutory_quote": "The manufacturing licence number under which the cosmetic is manufactured, preceded by the letters 'M.L. No.' or 'Mfg. Lic. No.'."
+  },
+  "batch_lot_number": {
+    "act_name": "Cosmetics Rules, 2020",
+    "rule_number": "Rule 34(1)(d)",
+    "section_title": "Batch or Lot Number for Cosmetic Traceability",
+    "source_document": "Cosmetics Rules, 2020 (G.S.R. 718(E))",
+    "page_number": 23,
+    "statutory_quote": "A distinctive batch number preceded by the letter 'B' or 'Batch No.' or 'B. No.' or 'Lot No.' to facilitate full traceability."
+  },
+  "cosmetic_ingredients": {
+    "act_name": "Cosmetics Rules, 2020",
+    "rule_number": "Rule 34(1)(f)",
+    "section_title": "Cosmetic Ingredients List using INCI Nomenclature",
+    "source_document": "Cosmetics Rules, 2020 (G.S.R. 718(E))",
+    "page_number": 23,
+    "statutory_quote": "Ingredients present in concentration of more than 1% shall be listed in descending order of weight or volume, followed by those present in concentration up to 1%, using International Nomenclature of Cosmetic Ingredients (INCI)."
+  },
+  "directions_for_use": {
+    "act_name": "Cosmetics Rules, 2020",
+    "rule_number": "Rule 34(1)(e)",
+    "section_title": "Directions for Safe Use and Application",
+    "source_document": "Cosmetics Rules, 2020 (G.S.R. 718(E))",
+    "page_number": 23,
+    "statutory_quote": "Directions for safe use and application of the cosmetic commodity, including clear step-by-step instructions for consumer safety."
+  },
+  "cosmetic_warnings": {
+    "act_name": "Cosmetics Rules, 2020",
+    "rule_number": "Rule 34(1)(h)",
+    "section_title": "Warning and Precautionary Statements for Cosmetics",
+    "source_document": "Cosmetics Rules, 2020 (G.S.R. 718(E))",
+    "page_number": 24,
+    "statutory_quote": "Where danger of fire or injury to health exists, suitable warning statements such as 'For external use only', 'Avoid contact with eyes', 'Keep out of reach of children'."
+  },
+  "fibre_composition": {
+    "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+    "rule_number": "Rule 13(5) & Rule 26(f)",
+    "section_title": "Fibre Composition of Textiles and Finished Garments",
+    "source_document": "G.S.R. 648(E) (Third Amendment Rules, 2022)",
+    "page_number": 2,
+    "statutory_quote": "Percentage of each fibre type present in the garment or piece, e.g., '100% Cotton' or '65% Polyester 35% Cotton'."
+  },
+  "size_declaration": {
+    "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+    "rule_number": "Rule 26(f)(iii)",
+    "section_title": "Standard Size Indicators and Metric Dimensions for Garments",
+    "source_document": "G.S.R. 648(E) dated 22.08.2022",
+    "page_number": 2,
+    "statutory_quote": "Sizes with internationally recognizable size indicators such as S, M, L, XL, XXL and XXXL along with details in metric notation in terms of cm or m, as the case may be."
+  },
+  "wash_care": {
+    "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+    "rule_number": "Rule 26(f)",
+    "section_title": "Care and Wash Instructions for Finished Garments",
+    "source_document": "G.S.R. 648(E) dated 22.08.2022",
+    "page_number": 2,
+    "statutory_quote": "Recommended washing, drying, and ironing instructions or ISO standard wash care symbols to preserve garment quality."
+  },
+  "bis_registration": {
+    "act_name": "Bureau of Indian Standards (Conformity Assessment) Regulations & CRO Scheme",
+    "rule_number": "Regulation 6 & CRO Scheme II",
+    "section_title": "Standard Mark and CRS Registration Number",
+    "source_document": "MeitY / BIS Electronics Compulsory Registration Order",
+    "page_number": 4,
+    "statutory_quote": "Self-declaration statement 'Self-Declaration - Conforming to IS ...' with the Standard Mark and official registration number R-XXXXXXXX."
+  },
+  "power_ratings": {
+    "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011 & BIS Standards",
+    "rule_number": "Rule 6(1)(f) & IS Specifications",
+    "section_title": "Rated Voltage, Frequency and Wattage Declaration",
+    "source_document": "G.S.R. 202(E) / BIS Standards",
+    "page_number": 7,
+    "statutory_quote": "The rated voltage (V), operational frequency (Hz), and power input / wattage (W) shall be clearly declared on the electrical apparatus packaging."
+  },
+  "pan_masala_no_exemption": {
+    "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+    "rule_number": "Rule 26(a) Second Proviso",
+    "section_title": "Prohibition of 10g Small Pack Exemption for Pan Masala",
+    "source_document": "G.S.R. 881(E) (Second Amendment Rules, 2025)",
+    "page_number": 2,
+    "statutory_quote": "Provided further that the provisions of this clause [exempting packages <= 10g or 10ml from declarations] shall not apply to pan masala. All pan masala packages of any weight must bear complete mandatory declarations."
+  },
+  "section_36_penalties": {
+    "act_name": "Legal Metrology Act, 2009 (as amended by Jan Vishwas Act, 2023)",
+    "rule_number": "Section 36(1)",
+    "section_title": "Penalty for Selling, Distributing Non-Compliant Pre-Packaged Commodities",
+    "source_document": "Jan Vishwas (Amendment of Provisions) Act, 2023 (18 of 2023)",
+    "page_number": 12,
+    "statutory_quote": "Whoever manufactures, packs, imports, sells or distributes any pre-packaged commodity which does not conform to the declarations on the package shall be punished with fine: up to ?25,000 for first offence, ?50,000 for second offence, and up to ?1,00,000 for subsequent offences."
+  },
+  "rule_12_metric_symbol": {
+    "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+    "rule_number": "Rule 12 & Third Schedule",
+    "section_title": "Manner in Which Units of Weight or Measure Shall be Expressed",
+    "source_document": "G.S.R. 202(E) / G.S.R. 779(E)",
+    "page_number": 15,
+    "statutory_quote": "No system of units other than standard SI metric units shall be used. The symbols for units shall be strictly 'g' for gram, 'kg' for kilogram, 'ml' for millilitre, 'l' or 'L' for litre, 'm' for metre, 'cm' for centimetre, 'N' for number. Use of non-standard symbols like 'gm', 'gms', 'g.', 'Kgs', 'ltr', 'ltrs' is strictly prohibited."
+  },
+  "bee_star_rating": {
+    "act_name": "Bureau of Energy Efficiency (BEE) Regulations & Energy Conservation Act, 2001",
+    "rule_number": "Regulation 3 & Schedule I",
+    "section_title": "BEE Energy Star Rating and Electricity Consumption Label",
+    "source_document": "BEE Star Labelling Notification & Energy Conservation Act",
+    "page_number": 1,
+    "statutory_quote": "Every appliance notified under Star Labelling Scheme shall affix the Star Label displaying the Star Level (1 to 5), Electricity Consumption in kWh/year, label period validity, brand, and model details."
+  }
+}

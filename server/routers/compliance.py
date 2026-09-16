@@ -4,11 +4,12 @@ from typing import Optional, Dict, Any
 from fastapi import APIRouter, File, UploadFile, Query, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from schemas.compliance import ComplianceResult
+from schemas.compliance import ComplianceResult, LegalCitation
 from schemas.ocr import OCRScanResult
 from services.ocr_service import get_ocr_service
 from services.compliance_evaluator import evaluate_label_compliance
 from services.rule_loader import load_rules_from_file, sync_rules_to_db, get_rules_from_db, get_rules_for_category
+from services.rag.citation_service import get_citation_service
 from database import get_db
 from models import Inspection, Violation, Product
 
@@ -126,7 +127,8 @@ async def evaluate_image_compliance(
                     severity=v_sev,
                     title=f"{v.field_name} - {v_type}"[:150],
                     description=str(v.description or "")[:500],
-                    evidence_bbox=v.evidence_bbox.model_dump() if v.evidence_bbox else None
+                    evidence_bbox=v.evidence_bbox.model_dump() if v.evidence_bbox else None,
+                    citation=v.citation.model_dump() if v.citation else None
                 )
                 db.add(viol_obj)
             db.commit()
@@ -170,3 +172,51 @@ def evaluate_ocr_payload(
     ruleset = get_rules_for_category(category=resolved_category, db=db)
     result = evaluate_label_compliance(ocr_result, ruleset=ruleset, db=db, category=resolved_category)
     return result
+
+
+@router.get(
+    "/citations",
+    summary="List all official statutory Act/Rule citations",
+    description="Returns dictionary of all mapped Legal Metrology, FSSAI, Cosmetics, and BIS statutory citations."
+)
+def get_all_statutory_citations():
+    citation_svc = get_citation_service()
+    return {
+        rule_id: cit.model_dump()
+        for rule_id, cit in citation_svc._citations.items()
+    }
+
+
+@router.get(
+    "/citations/{rule_id}",
+    response_model=LegalCitation,
+    summary="Get statutory Act, Rule number, and verbatim quote for a specific compliance rule",
+    description="Retrieves official Gazette notification citation and statutory text for a given rule_id."
+)
+def get_rule_statutory_citation(rule_id: str):
+    citation_svc = get_citation_service()
+    cit = citation_svc.get_citation(rule_id)
+    if not cit:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No statutory citation found for rule '{rule_id}'."
+        )
+    return cit
+
+
+@router.get(
+    "/citations-search",
+    summary="Search statutory legal corpus",
+    description="Searches 1,144+ extracted statutory pages from official Indian compliance Acts and Gazette notifications."
+)
+def search_statutory_corpus(
+    q: str = Query(..., description="Search query terms (e.g. 'unit sale price', 'maximum retail price', 'fssai font')"),
+    top_k: int = Query(default=3, ge=1, le=10, description="Maximum number of statutory excerpts to return")
+):
+    citation_svc = get_citation_service()
+    results = citation_svc.search_statutory_corpus(q, top_k=top_k)
+    return {
+        "query": q,
+        "total_results": len(results),
+        "results": results
+    }
