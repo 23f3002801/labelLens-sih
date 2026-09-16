@@ -185,3 +185,72 @@ async def video_upload_image(
     file: UploadFile = File(...),
 ):
     return await video_to_frames(background_tasks=background_tasks, db=db, file=file)
+
+
+@router.post("/unwrap")
+async def video_unwrap(file: UploadFile = File(...)):
+    """
+    Stateless video unwrap compute endpoint:
+    Accepts video bytes, extracts flattened label faces using UniversalLabelExtractor,
+    and returns an array of extracted image frames without Cloudinary or database dependencies.
+    """
+    import base64
+    filename = file.filename or "upload.mp4"
+    extension = Path(filename).suffix.lower()
+
+    allowed_extensions = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
+    if extension not in allowed_extensions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported format '{extension}'. Allowed: {', '.join(allowed_extensions)}",
+        )
+
+    video_bytes = await file.read()
+    if not video_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded video is empty.",
+        )
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        video_path = Path(temp_dir) / f"input{extension}"
+        video_path.write_bytes(video_bytes)
+        output_dir = Path(temp_dir) / "extracted_faces"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            image_paths = await run_in_threadpool(
+                process_video,
+                str(video_path),
+                str(output_dir),
+            )
+        except Exception as error:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Video processing failed: {error}",
+            )
+
+        if not image_paths:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="No label faces were detected in the video.",
+            )
+
+        frames = []
+        for idx, img_path in enumerate(image_paths):
+            p = Path(img_path)
+            if p.exists():
+                img_data = p.read_bytes()
+                frames.append({
+                    "frame_index": idx,
+                    "filename": p.name,
+                    "image_base64": base64.b64encode(img_data).decode("utf-8"),
+                    "content_type": "image/jpeg",
+                    "size_bytes": len(img_data),
+                })
+
+        return {
+            "success": True,
+            "count": len(frames),
+            "frames": frames,
+        }

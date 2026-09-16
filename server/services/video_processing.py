@@ -250,3 +250,13 @@ if __name__ == "__main__":
     # extractor.process_input("sample.mp4", "extracted_labels")
     # Processing Single Image
     # extractor.process_input(r"E:\github\labelLens-sih\dataset\test\44.png", "extracted_labels")
+
+
+
+
+
+
+
+
+
+  
