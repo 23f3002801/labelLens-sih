@@ -1,86 +1,328 @@
-const NODE_API_BASE = "http://localhost:3000/api/v1";
-const FASTAPI_BASE = "http://127.0.0.1:8000/api/v1";
+// Base URL: relative by default so the Vite dev proxy (and any reverse proxy in
+// production) handles the host. Override with VITE_API_URL when needed.
+const API_BASE_URL = import.meta.env?.VITE_API_URL || "http://localhost:3000/api/v1";
+const NODE_API_BASE = API_BASE_URL;
+const FASTAPI_BASE = import.meta.env?.VITE_FASTAPI_URL || "http://127.0.0.1:8000/api/v1";
+
+// Cap every request so a hung server/proxy can never leave a background
+// revalidation pending forever (which would freeze the cache on stale data).
+const REQUEST_TIMEOUT_MS = 30_000;
+
+// ---------------------------------------------------------------------------
+// In-memory cache for GET responses with stale-while-revalidate semantics.
+// ---------------------------------------------------------------------------
+const CACHE_TTL = {
+  me: 60_000, // /auth/me — user profile rarely changes
+  inspections: 15_000, // inspection list
+  inspection: 60_000, // single inspection detail (immutable once scanned)
+};
+
+const cache = new Map(); // key -> { expires, data, inflight }
+const listeners = new Map(); // key -> Set<callback>
+
+function subscribe(key, callback) {
+  if (!listeners.has(key)) listeners.set(key, new Set());
+  listeners.get(key).add(callback);
+  return () => listeners.get(key)?.delete(callback);
+}
+
+function notify(key, data) {
+  for (const cb of listeners.get(key) || []) {
+    try {
+      cb(data);
+    } catch {
+      // a broken listener must not break the cache or other listeners
+    }
+  }
+}
+
+function cacheSet(key, data, ttl) {
+  cache.set(key, { ...cache.get(key), expires: Date.now() + ttl, data, inflight: null });
+  notify(key, data);
+}
+
+// Synchronous read for initial component state; never deletes anything.
+function cachePeek(key) {
+  const entry = cache.get(key);
+  return entry ? { data: entry.data, stale: Date.now() > entry.expires } : undefined;
+}
+
+// Instead of deleting entries on mutation, force-expire them: the next visit
+// serves the previous data instantly and revalidates in the background.
+function cacheMarkStale(prefixes) {
+  for (const [key, entry] of cache) {
+    if (prefixes.some((p) => key.startsWith(p))) entry.expires = 0;
+  }
+}
+
+// Stale-while-revalidate core: fresh -> return; stale -> return + one
+// background refresh (deduplicated via inflight); empty -> await fetcher.
+async function swrGet(key, ttl, fetcher) {
+  const entry = cache.get(key);
+  if (entry && Date.now() <= entry.expires) return entry.data;
+
+  if (entry) {
+    if (!entry.inflight) {
+      entry.inflight = fetcher()
+        .then((data) => cacheSet(key, data, ttl))
+        .catch(() => {
+          // refresh failed — keep serving the stale data
+        })
+        .finally(() => {
+          const e = cache.get(key);
+          if (e) e.inflight = null;
+        });
+    }
+    return entry.data;
+  }
+
+  const data = await fetcher();
+  cacheSet(key, data, ttl);
+  return data;
+}
+
+function markInspectionsStale() {
+  cacheMarkStale(["/inspections", "/uploads/"]);
+}
+
+// After a successful scan, seed the caches with the result so the new scan is
+// visible immediately in every cached list and the detail page — without
+// waiting for (or depending on) a background revalidation.
+function cacheScanResult(scan) {
+  const scanId = scan?.scan_id ?? scan?.scanId ?? scan?.id;
+  if (!scanId) return;
+
+  cacheSet(`/uploads/${scanId}`, normalizeInspectionDetail(scan), CACHE_TTL.inspection);
+
+  const summary = normalizeInspectionSummary(scan);
+  for (const key of [...cache.keys()]) {
+    if (!key.startsWith("/inspections")) continue;
+    const entry = cache.get(key);
+    if (!entry?.data || !Array.isArray(entry.data.items)) continue;
+    if (entry.data.items.some((it) => it.id === summary.id)) continue;
+    cacheSet(
+      key,
+      {
+        ...entry.data,
+        items: [summary, ...entry.data.items],
+        total: (entry.data.total ?? entry.data.items.length) + 1,
+      },
+      CACHE_TTL.inspections
+    );
+  }
+
+  // Lists that were not cached still need a refresh on next visit.
+  markInspectionsStale();
+}
+
+// ---------------------------------------------------------------------------
+// Core request helper: never crashes on empty / non-JSON responses, surfaces
+// the server's error message, and handles expired sessions globally.
+// ---------------------------------------------------------------------------
+async function request(path, { method = "GET", body, formData, auth = true } = {}) {
+  const headers = {};
+  if (auth) {
+    const token = api.getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers,
+      body: formData ?? (body !== undefined ? JSON.stringify(body) : undefined),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch {
+    throw new Error("Cannot reach the server. Make sure the backend is running.");
+  }
+
+  let data = null;
+  const raw = await response.text();
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = null;
+    }
+  }
+
+  if (!response.ok) {
+    if (response.status === 401 && auth) {
+      api.clearSession();
+      if (!window.location.pathname.startsWith("/login")) {
+        window.location.assign("/login");
+      }
+    }
+    const message =
+      data?.message ||
+      (typeof data?.error === "string" ? data.error : null) ||
+      `Request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Field normalization
+// ---------------------------------------------------------------------------
+function normalizeStatus(status) {
+  return String(status || "").toLowerCase();
+}
+
+function normalizeInspectionSummary(item = {}) {
+  return {
+    id: item.scan_id ?? item.id ?? null,
+    productName: item.productName || item.product_name || null,
+    status: normalizeStatus(item.status),
+    imageUrl: item.image_path || item.image_url || null,
+    annotatedImagePath: item.annotated_image_path || null,
+    complianceScore: item.compliance_score ?? 0,
+    violationsCount:
+      item.violations_count ??
+      (Array.isArray(item.violations) ? item.violations.length : item.violations ?? 0),
+    createdAt: item.created_at || item.scannedAt || item.createdAt || null,
+  };
+}
+
+function normalizeInspectionDetail(detail = {}) {
+  const violations = Array.isArray(detail.violations)
+    ? detail.violations.map((v) =>
+        typeof v === "string"
+          ? { title: v, description: "", severity: null }
+          : {
+              id: v.id ?? null,
+              ruleCode: v.rule_code ?? v.ruleCode ?? null,
+              severity: v.severity ?? null,
+              title: v.title ?? v.message ?? "Violation",
+              description: v.description ?? "",
+              evidenceBbox: v.evidence_bbox ?? v.evidenceBbox ?? null,
+              citation: v.citation ?? null,
+              detectedOnPackage: v.detected_on_package ?? v.detectedOnPackage ?? null,
+              expectedOnPackage: v.expected_on_package ?? v.expectedOnPackage ?? null,
+              packageElement: v.package_element ?? v.packageElement ?? null,
+            }
+      )
+    : [];
+
+  return {
+    ...normalizeInspectionSummary(detail),
+    overallResult: detail.overall_result ?? null,
+    ocrResult: detail.ocr_result ?? null,
+    extractedDeclarations: detail.extracted_declarations ?? [],
+    annotatedImageBase64: detail.annotated_image_base64 ?? null,
+    annotatedImagePath: detail.annotated_image_path ?? null,
+    inspector: detail.inspector ?? null,
+    violations,
+  };
+}
 
 const api = {
-  // Get stored token
+  // --- session -------------------------------------------------------------
   getToken: () => localStorage.getItem("almac_token"),
-
-  // Store token
   setToken: (token) => localStorage.setItem("almac_token", token),
-
-  // Remove token (logout)
-  removeToken: () => localStorage.removeItem("almac_token"),
-
-  // Check if user is logged in
+  removeToken: () => {
+    localStorage.removeItem("almac_token");
+    cache.clear();
+  },
   isAuthenticated: () => !!localStorage.getItem("almac_token"),
-
-  // Get stored user data
   getUser: () => {
     const user = localStorage.getItem("almac_user");
     return user ? JSON.parse(user) : null;
   },
-
-  // Store user data
   setUser: (user) => localStorage.setItem("almac_user", JSON.stringify(user)),
-
-  // Remove user data
   removeUser: () => localStorage.removeItem("almac_user"),
+  clearSession: () => {
+    api.removeToken();
+    api.removeUser();
+  },
 
-  // Login
+  // --- auth ----------------------------------------------------------------
   login: async (email, password) => {
-    const response = await fetch(`${NODE_API_BASE}/auth/login`, {
+    const data = await request("/auth/login", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: { email, password },
+      auth: false,
     });
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.message || "Login failed");
+    if (data?.token) {
+      api.setToken(data.token);
+      if (data.user) api.setUser(data.user);
     }
     return data;
   },
 
-  // Register
   register: async (userData) => {
-    const response = await fetch(`${NODE_API_BASE}/auth/register`, {
+    const data = await request("/auth/register", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(userData),
+      body: userData,
+      auth: false,
     });
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.message || "Registration failed");
+    if (data?.token) {
+      api.setToken(data.token);
+      if (data.user) api.setUser(data.user);
     }
     return data;
   },
 
-  // Get current user profile
-  getMe: async () => {
-    const token = api.getToken();
-    const response = await fetch(`${NODE_API_BASE}/auth/me`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.message || "Failed to fetch profile");
-    }
+  getMe: () => swrGet("/auth/me", CACHE_TTL.me, () => request("/auth/me")),
+  peekMe: () => cachePeek("/auth/me"),
+  subscribeMe: (cb) => subscribe("/auth/me", cb),
+
+  updateProfile: async (updates) => {
+    const data = await request("/auth/me", { method: "PUT", body: updates });
+    cacheMarkStale(["/auth/me"]);
     return data;
   },
 
-  /**
-   * End-to-End Label Scan & Compliance Evaluation:
-   * First attempts Fastify orchestration on http://localhost:3000 (saves to NeonDB & Cloudinary).
-   * Gracefully falls back to direct FastAPI compute on http://127.0.0.1:8000 if Node server is down.
-   */
+  // --- scans ---------------------------------------------------------------
+  // Upload + scan a packaging image with progress
+  uploadImage: (file, onProgress) =>
+    new Promise((resolve, reject) => {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${API_BASE_URL}/uploads/image`);
+      const token = api.getToken();
+      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+      xhr.onload = () => {
+        let data = null;
+        try {
+          data = JSON.parse(xhr.responseText);
+        } catch {
+          data = null;
+        }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          cacheScanResult(data);
+          resolve(data);
+        } else {
+          if (xhr.status === 401) api.clearSession();
+          reject(
+            new Error(
+              data?.message || `Scan failed with status ${xhr.status}`
+            )
+          );
+        }
+      };
+      xhr.onerror = () =>
+        reject(new Error("Cannot reach the server. Make sure the backend is running."));
+      xhr.send(formData);
+    }),
+
+  // Dual-path category-scoped upload & scan with FastAPI fallback
   uploadAndScan: async (file, category = "general") => {
     const token = api.getToken();
     const formData = new FormData();
     formData.append("file", file);
-    // Note: category is passed as a URL query param below — no need to duplicate in form body
 
     // 1. Primary: Fastify server orchestration
     try {
@@ -99,6 +341,7 @@ const api = {
 
       if (response.ok) {
         const data = await response.json();
+        cacheScanResult(data);
         return {
           source: "node-server",
           ...data,
@@ -152,36 +395,41 @@ const api = {
     };
   },
 
-  // Get past inspections list
-  getInspections: async ({ page = 1, limit = 20, status = "" } = {}) => {
-    let url = `${NODE_API_BASE}/inspections?page=${page}&limit=${limit}`;
-    if (status && status !== "ALL") {
-      url += `&status=${encodeURIComponent(status)}`;
-    }
-    const token = api.getToken();
-    const headers = {};
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-    try {
-      const response = await fetch(url, { headers, signal: controller.signal });
-      clearTimeout(timeoutId);
-      if (!response.ok) {
-        throw new Error(`Failed to load inspections: ${response.statusText} (${response.status})`);
-      }
-      return await response.json();
-    } catch (err) {
-      clearTimeout(timeoutId);
-      if (err.name === "AbortError") {
-        throw new Error("Connection to Node.js backend timed out (server might be offline on port 3000)");
-      }
-      throw err;
-    }
+  getInspections: (page = 1, limit = 20) => {
+    const key = `/inspections?page=${page}&limit=${limit}`;
+    return swrGet(key, CACHE_TTL.inspections, async () => {
+      const data = await request(`/inspections?page=${page}&limit=${limit}`);
+      const rawItems = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.items)
+          ? data.items
+          : [];
+      return {
+        page: data?.page ?? page,
+        limit: data?.limit ?? limit,
+        total: data?.total ?? rawItems.length,
+        total_pages: data?.total_pages ?? Math.ceil(rawItems.length / limit),
+        items: rawItems.map(normalizeInspectionSummary),
+      };
+    });
   },
 
-  // Get specific inspection details
+  peekInspections: (page = 1, limit = 20) =>
+    cachePeek(`/inspections?page=${page}&limit=${limit}`),
+
+  subscribeInspections: (page, limit, cb) =>
+    subscribe(`/inspections?page=${page}&limit=${limit}`, cb),
+
+  getInspection: (scanId) =>
+    swrGet(`/uploads/${scanId}`, CACHE_TTL.inspection, async () => {
+      const data = await request(`/uploads/${scanId}`);
+      return normalizeInspectionDetail(data);
+    }),
+
+  peekInspection: (scanId) => cachePeek(`/uploads/${scanId}`),
+
+  subscribeInspection: (scanId, cb) => subscribe(`/uploads/${scanId}`, cb),
+
   getScanById: async (scanId) => {
     const token = api.getToken();
     const headers = {};
@@ -194,7 +442,7 @@ const api = {
     return await response.json();
   },
 
-  // Get statutory legal citations dictionary
+  // Statutory citations
   getCitations: async () => {
     try {
       const response = await fetch(`${NODE_API_BASE}/compliance/citations`);
@@ -207,7 +455,6 @@ const api = {
     return await directRes.json();
   },
 
-  // Search statutory corpus
   searchCitations: async (query, topK = 3) => {
     const q = encodeURIComponent(query);
     try {
@@ -221,7 +468,6 @@ const api = {
     return await directRes.json();
   },
 
-  // Get active rules by category
   getActiveRules: async (category = "general") => {
     const cat = encodeURIComponent(category);
     try {

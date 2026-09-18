@@ -204,8 +204,60 @@ async function getMe(req, reply) {
   }
 }
 
+async function updateProfile(req, reply) {
+  try {
+    const { fullName, district, state } = req.body || {};
+
+    if (fullName !== undefined && (!fullName || !String(fullName).trim())) {
+      return reply.code(400).send({
+        error: "Bad Request",
+        message: "Full name cannot be empty",
+      });
+    }
+
+    const data = {};
+    if (fullName !== undefined) data.fullName = String(fullName).trim();
+    if (district !== undefined) data.district = district ? String(district).trim() : null;
+    if (state !== undefined) data.state = state ? String(state).trim() : null;
+
+    if (Object.keys(data).length === 0) {
+      return reply.code(400).send({
+        error: "Bad Request",
+        message: "No updatable fields provided (fullName, district, state)",
+      });
+    }
+
+    const user = await prisma.user.update({
+      where: { id: req.user.id },
+      data,
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        district: true,
+        state: true,
+        badgeNumber: true,
+        createdAt: true,
+      },
+    });
+
+    return reply.code(200).send({
+      message: "Profile updated successfully",
+      user,
+    });
+  } catch (error) {
+    req.log.error(error);
+    return reply.code(500).send({
+      error: "Internal Server Error",
+      message: "Failed to update profile",
+    });
+  }
+}
+
 module.exports = {
   register,
   login,
   getMe,
+  updateProfile,
 };

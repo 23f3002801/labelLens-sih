@@ -1,4 +1,5 @@
 const prisma = require("../config/db");
+const { createHash } = require("crypto");
 const { uploadBuffer } = require("../services/cloudinaryService");
 const {
   runOcr,
@@ -8,6 +9,46 @@ const {
   searchCitations,
   getRules,
 } = require("../services/fastapiService");
+const scanCache = require("../utils/scanCache");
+
+/**
+ * Split the multi-megabyte annotated-image base64 out of the FastAPI OCR
+ * payload. The base64 is uploaded to Cloudinary separately and only the URL
+ * is persisted — keeping it inside rawOcrOutput made the inspections table
+ * balloon (~40 MB for 55 scans) and every list query drag all of it over
+ * the network.
+ */
+function extractAnnotatedImage(ocrResult) {
+  if (!ocrResult || typeof ocrResult !== "object") {
+    return { annotatedBase64: null, ocrSlim: ocrResult };
+  }
+  const value =
+    ocrResult.annotated_image_base64 || ocrResult.annotated_image || null;
+  if (typeof value !== "string" || value.length === 0) {
+    return { annotatedBase64: null, ocrSlim: ocrResult };
+  }
+  const annotatedBase64 = value.includes(",")
+    ? value.slice(value.indexOf(",") + 1)
+    : value;
+  const ocrSlim = { ...ocrResult };
+  delete ocrSlim.annotated_image_base64;
+  delete ocrSlim.annotated_image;
+  return { annotatedBase64, ocrSlim };
+}
+
+/** Upload the annotated image to Cloudinary and return its URL (null on failure). */
+async function hostAnnotatedImage(annotatedBase64, filename, log) {
+  if (!annotatedBase64) return null;
+  try {
+    const result = await uploadBuffer(Buffer.from(annotatedBase64, "base64"), {
+      filename: `annotated_${filename}`,
+    });
+    return result.secure_url;
+  } catch (err) {
+    log.warn(`Annotated image upload failed: ${err.message}`);
+    return null;
+  }
+}
 
 const ALLOWED_IMAGE_MIMES = [
   "image/jpeg",
@@ -63,25 +104,44 @@ async function handlePhotoScan(req, reply) {
     const inspectorId = req.user?.id || null;
     const category = req.query?.category || data.fields?.category?.value || "general";
 
-    // Concurrent: Upload to Cloudinary & run OCR on FastAPI
-    const [cloudinaryResult, ocrResult] = await Promise.all([
-      uploadBuffer(imageBuffer, { filename }).catch((err) => {
-        req.log.warn(`Cloudinary upload warning: ${err.message}`);
-        return { secure_url: null, public_id: null };
-      }),
-      runOcr(imageBuffer, filename),
-    ]);
+    // Identical images previously scanned (within the cache TTL) skip the
+    // expensive Cloudinary + OCR + compliance round-trips entirely.
+    const imageHash = createHash("sha256").update(imageBuffer).digest("hex");
+    const cachedPipeline = scanCache.get(imageHash);
 
-    if (!ocrResult || !ocrResult.success) {
-      return reply.code(502).send({
-        error: "Bad Gateway",
-        message: `OCR extraction failed: ${ocrResult?.error || "Unknown error"}`,
-      });
+    let cloudinaryResult;
+    let ocrResult;
+    let complianceResult;
+    let annotatedUrl;
+
+    if (cachedPipeline) {
+      req.log.info(`Scan cache hit for image ${imageHash.slice(0, 12)}…`);
+      ({ cloudinaryResult, ocrResult, complianceResult, annotatedUrl } = cachedPipeline);
+    } else {
+      // Concurrent: Upload to Cloudinary & run OCR on FastAPI
+      const [upload, ocr] = await Promise.all([
+        uploadBuffer(imageBuffer, { filename }).catch((err) => {
+          req.log.warn(`Cloudinary upload warning: ${err.message}`);
+          return { secure_url: null, public_id: null };
+        }),
+        runOcr(imageBuffer, filename),
+      ]);
+
+      if (!ocr || !ocr.success) {
+        return reply.code(502).send({
+          error: "Bad Gateway",
+          message: `OCR extraction failed: ${ocr?.error || "Unknown error"}`,
+        });
+      }
+
+      cloudinaryResult = upload;
+      complianceResult = await evaluateOcrCompliance(ocr, category);
+      const { annotatedBase64, ocrSlim } = extractAnnotatedImage(ocr);
+      annotatedUrl = await hostAnnotatedImage(annotatedBase64, filename, req.log);
+      ocrResult = ocrSlim;
+
+      scanCache.set(imageHash, { cloudinaryResult, ocrResult, complianceResult, annotatedUrl });
     }
-
-    // Run Compliance Evaluation on OCR payload with category scoping
-    const complianceResult = await evaluateOcrCompliance(ocrResult, category);
-
     const overallStatus =
       complianceResult.overall_result === "PASS"
         ? "COMPLIANT"
@@ -121,7 +181,7 @@ async function handlePhotoScan(req, reply) {
       data: {
         inspectorId,
         imagePath: cloudinaryResult.secure_url || null,
-        annotatedImagePath: annotatedCloudinaryUrl || null,
+        annotatedImagePath: annotatedUrl || annotatedCloudinaryUrl || null,
         rawOcrOutput: ocrResult,
         extractedDeclarations,
         complianceScore: complianceResult.compliance_score || 0.0,
@@ -176,7 +236,7 @@ async function handlePhotoScan(req, reply) {
       scan_id: inspection.id,
       status: inspection.status,
       image_path: inspection.imagePath,
-      annotated_image_path: inspection.annotatedImagePath,
+      annotated_image_path: inspection.annotatedImagePath || annotatedUrl || null,
       annotated_image_base64: ocrResult.annotated_image_base64 || complianceResult.annotated_image_base64 || null,
       cloudinary_public_id: cloudinaryResult.public_id,
       created_at: inspection.createdAt,
@@ -275,8 +335,15 @@ async function handleVideoScan(req, reply) {
 
     // Step 3: Run OCR and compliance evaluation on best frame (first unwrapped face)
     const primaryFrame = uploadedFrames[0];
-    const ocrResult = await runOcr(primaryFrame.buffer, primaryFrame.filename);
-    const complianceResult = await evaluateOcrCompliance(ocrResult, category);
+    const fullOcrResult = await runOcr(primaryFrame.buffer, primaryFrame.filename);
+    const complianceResult = await evaluateOcrCompliance(fullOcrResult, category);
+    const { annotatedBase64, ocrSlim } = extractAnnotatedImage(fullOcrResult);
+    const annotatedUrl = await hostAnnotatedImage(
+      annotatedBase64,
+      primaryFrame.filename || "video_frame.jpg",
+      req.log
+    );
+    const ocrResult = ocrSlim;
 
     const overallStatus =
       complianceResult.overall_result === "PASS"
@@ -300,7 +367,7 @@ async function handleVideoScan(req, reply) {
       data: {
         inspectorId,
         imagePath: primaryFrame.image_url,
-        annotatedImagePath: ocrResult.annotated_image || null,
+        annotatedImagePath: annotatedUrl,
         rawOcrOutput: {
           ...ocrResult,
           video_frames: uploadedFrames.map((f) => ({
@@ -359,6 +426,7 @@ async function handleVideoScan(req, reply) {
       image_path: inspection.imagePath,
       annotated_image_base64: ocrResult.annotated_image_base64 || complianceResult.annotated_image_base64 || null,
       frames_count: uploadedFrames.length,
+      annotated_image_path: annotatedUrl,
       frames: uploadedFrames.map((f) => ({
         frame_index: f.frame_index,
         image_url: f.image_url,
@@ -422,15 +490,26 @@ async function getScanById(req, reply) {
       });
     }
 
+    // Old rows may still carry multi-megabyte base64 blobs in rawOcrOutput —
+    // strip them from the response; the images live at the image_path /
+    // annotated_image_path URLs.
+    const ocrOutput = inspection.rawOcrOutput
+      ? { ...inspection.rawOcrOutput }
+      : null;
+    if (ocrOutput) {
+      delete ocrOutput.annotated_image_base64;
+      delete ocrOutput.annotated_image;
+    }
+
     return reply.code(200).send({
       scan_id: inspection.id,
       status: inspection.status,
       image_path: inspection.imagePath,
-      annotated_image_path: inspection.annotatedImagePath,
+      annotated_image_path: inspection.annotatedImagePath || null,
       annotated_image_base64: inspection.rawOcrOutput?.annotated_image_base64 || null,
       created_at: inspection.createdAt,
       compliance_score: inspection.complianceScore,
-      ocr_result: inspection.rawOcrOutput,
+      ocr_result: ocrOutput,
       extracted_declarations: inspection.extractedDeclarations,
       inspector: inspection.inspector,
       violations: inspection.violations.map((v) => ({
@@ -476,8 +555,16 @@ async function listScans(req, reply) {
         skip,
         take: limit,
         orderBy: { createdAt: "desc" },
-        include: {
-          violations: true,
+        // Deliberately no rawOcrOutput/extractedDeclarations here: legacy rows
+        // carry megabytes of base64 in those columns and the list response
+        // never uses them. Fetching them made limit=100 take 40+ seconds.
+        select: {
+          id: true,
+          status: true,
+          imagePath: true,
+          complianceScore: true,
+          createdAt: true,
+          violations: { select: { id: true } },
         },
       }),
     ]);
@@ -546,4 +633,5 @@ module.exports = {
   getComplianceRules,
   getStatutoryCitations,
   searchStatutoryCorpus,
+  extractAnnotatedImage,
 };

@@ -1,7 +1,17 @@
 const FASTAPI_BASE_URL = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
 
-// Default timeout for all FastAPI calls (ms). Override via env.
-const FASTAPI_TIMEOUT_MS = parseInt(process.env.FASTAPI_TIMEOUT_MS || "30000", 10);
+// Timeouts (ms) so a hung FastAPI process fails fast instead of leaving the
+// client request open indefinitely.
+const OCR_TIMEOUT_MS = parseInt(process.env.FASTAPI_OCR_TIMEOUT_MS, 10) || 60_000;
+const EVAL_TIMEOUT_MS = parseInt(process.env.FASTAPI_EVAL_TIMEOUT_MS, 10) || 30_000;
+const VIDEO_TIMEOUT_MS = parseInt(process.env.FASTAPI_VIDEO_TIMEOUT_MS, 10) || 180_000;
+const DEFAULT_TIMEOUT_MS = parseInt(process.env.FASTAPI_TIMEOUT_MS, 10) || 30_000;
+
+function timeoutError(operation, status) {
+  return new Error(
+    `FastAPI ${operation} timed out after ${Math.round(status / 1000)}s`
+  );
+}
 
 /**
  * Detect MIME type from filename extension.
@@ -28,20 +38,17 @@ function getMimeType(filename) {
 }
 
 /**
- * Wrapper around fetch() that aborts the request after FASTAPI_TIMEOUT_MS.
- * Prevents the Node server from hanging indefinitely when FastAPI is slow/down.
+ * Wrapper around fetch() that aborts the request after timeout.
  */
-async function fetchWithTimeout(url, options = {}) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FASTAPI_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, { ...options, signal: controller.signal });
     return response;
   } catch (err) {
-    if (err.name === "AbortError") {
-      throw new Error(
-        `FastAPI request timed out after ${FASTAPI_TIMEOUT_MS}ms: ${url}`
-      );
+    if (err.name === "AbortError" || err.name === "TimeoutError") {
+      throw new Error(`FastAPI request timed out after ${timeoutMs}ms: ${url}`);
     }
     throw err;
   } finally {
@@ -60,7 +67,7 @@ async function runOcr(imageBuffer, filename = "label.jpg") {
   const response = await fetchWithTimeout(url, {
     method: "POST",
     body: formData,
-  });
+  }, OCR_TIMEOUT_MS);
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -83,7 +90,7 @@ async function runOcrBase64(base64Image) {
       enhance: true,
       include_annotated_image: true,
     }),
-  });
+  }, OCR_TIMEOUT_MS);
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -103,7 +110,7 @@ async function evaluateOcrCompliance(ocrResult, category = "general") {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(ocrResult),
-  });
+  }, EVAL_TIMEOUT_MS);
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -125,7 +132,7 @@ async function evaluateImageCompliance(imageBuffer, filename = "label.jpg", cate
   const response = await fetchWithTimeout(url, {
     method: "POST",
     body: formData,
-  });
+  }, EVAL_TIMEOUT_MS);
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -137,39 +144,23 @@ async function evaluateImageCompliance(imageBuffer, filename = "label.jpg", cate
 
 /**
  * Call FastAPI stateless /api/v1/video/unwrap
- * Uses a longer timeout since video processing can take more time.
  */
 async function unwrapVideo(videoBuffer, filename = "upload.mp4") {
   const url = `${FASTAPI_BASE_URL}/api/v1/video/unwrap`;
   const formData = new FormData();
   formData.append("file", new Blob([videoBuffer], { type: "video/mp4" }), filename);
 
-  // Video processing can take longer — use 3× the default timeout
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FASTAPI_TIMEOUT_MS * 3);
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      body: formData,
-      signal: controller.signal,
-    });
+  const response = await fetchWithTimeout(url, {
+    method: "POST",
+    body: formData,
+  }, VIDEO_TIMEOUT_MS);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`FastAPI video unwrap failed with status ${response.status}: ${errorText}`);
-    }
-
-    return await response.json();
-  } catch (err) {
-    if (err.name === "AbortError") {
-      throw new Error(
-        `FastAPI video unwrap timed out after ${FASTAPI_TIMEOUT_MS * 3}ms`
-      );
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`FastAPI video unwrap failed with status ${response.status}: ${errorText}`);
   }
+
+  return await response.json();
 }
 
 /**
