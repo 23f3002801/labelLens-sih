@@ -1,4 +1,4 @@
-const {checkHealth} = require("../controllers/healthcontroller");
+import { checkHealth } from "../controllers/healthcontroller.js";
 
 async function healthRoute(fastify,options){
     fastify.get("/health",checkHealth);
@@ -8,4 +8,4 @@ async function healthRoute(fastify,options){
     });
 }
 
-module.exports = healthRoute;
+export default healthRoute;
