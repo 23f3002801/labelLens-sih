@@ -52,6 +52,10 @@ class LegalCitationService:
         except Exception as e:
             logger.error(f"Failed to load statutory corpus chunks: {e}")
 
+    def get_all_citations(self) -> Dict[str, LegalCitation]:
+        """Returns all statutory citations as a read-only dict copy."""
+        return dict(self._citations)
+
     def get_citation(self, rule_id: str) -> Optional[LegalCitation]:
         """Returns the specific Act, Rule number, and statutory quote for a given rule_id."""
         if not rule_id:

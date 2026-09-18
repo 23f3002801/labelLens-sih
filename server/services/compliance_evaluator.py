@@ -16,7 +16,7 @@ from schemas.compliance import (
     ViolationDetail
 )
 from services.rule_loader import get_rules_from_db, get_rules_for_category
-from services.llm_evaluator import get_llm_evaluator
+from services.llm_evaluator import get_llm_evaluator, get_package_element_for_rule
 from services.rag.citation_service import get_citation_service
 
 logger = logging.getLogger("compliance_evaluator")
@@ -424,6 +424,18 @@ class ComplianceEvaluator:
         for viol in violations:
             if not viol.citation:
                 viol.citation = citation_svc.get_citation(viol.rule_id)
+            if not viol.package_element:
+                viol.package_element = get_package_element_for_rule(viol.rule_id)
+            if not viol.expected_on_package:
+                viol.expected_on_package = (
+                    self.rule_map.get(viol.rule_id, {}).get("expected_format")
+                    or f"Mandatory statutory declaration conforming to {viol.field_name} rules"
+                )
+            if not viol.detected_on_package:
+                if viol.violation_type == "missing":
+                    viol.detected_on_package = "Not printed anywhere on the package (Missing from label artwork)"
+                else:
+                    viol.detected_on_package = "Non-compliant text/declaration on packaging"
 
         # Step 3: Compute Compliance Score and Overall PASS/FAIL Status
         total_required = sum(1 for r in self.mandatory_rules if r.get("required", True))
@@ -470,6 +482,9 @@ class ComplianceEvaluator:
                     "description": item.description,
                     "field_name": item.field_name,
                     "violation_type": item.violation_type,
+                    "detected_on_package": item.detected_on_package,
+                    "expected_on_package": item.expected_on_package,
+                    "package_element": item.package_element,
                     "citation": item.citation.model_dump() if item.citation else None,
                 }
                 for item in violations

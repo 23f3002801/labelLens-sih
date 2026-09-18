@@ -94,6 +94,41 @@ def find_matching_bbox(exact_quote: Optional[str], text_blocks: List[TextBlock])
     return block.bbox if block else None
 
 
+PACKAGE_ELEMENT_MAP = {
+    "net_quantity": "Principal Display Panel (PDP) - Net Quantity Declaration",
+    "net_quantity_format": "Principal Display Panel (PDP) - Metric Notation",
+    "net_quantity_size": "Principal Display Panel (PDP) - Numeral Height",
+    "mrp": "Pricing & MRP Box (Principal Display Panel)",
+    "unit_sale_price": "Unit Sale Price Panel (Next to MRP)",
+    "manufacture_date": "Date Coding & Batch Stamp",
+    "mfg_date": "Date Coding & Batch Stamp",
+    "manufacturer_details": "Manufacturer / Packer / Importer Address Block",
+    "packer_details": "Packer / Importer Address Block",
+    "consumer_care": "Consumer Care & Grievance Helpline Box",
+    "country_of_origin": "Country of Origin Declaration",
+    "fssai_license": "FSSAI License & Logo Panel (Food Packaging)",
+    "veg_nonveg_symbol": "Vegetarian / Non-Vegetarian Emblem (PDP)",
+    "nutritional_info": "Nutritional Facts Table (Back of Pack / Side Panel)",
+    "ingredients_list": "Ingredients Statement (Descending Weight/Volume)",
+    "allergen_info": "Allergen Callout & Warning Notice",
+    "mfg_license": "Drug & Cosmetic Manufacturing License Block",
+    "batch_number": "Batch / Lot Identification Stamp",
+    "directions_for_use": "Directions for Safe Use & Application Panel",
+    "cosmetic_warnings": "Precautionary & Warning Statement",
+    "fibre_composition": "Fibre Composition % Tag (Finished Garments)",
+    "size_declaration": "Garment Size Indicator & Metric Dimensions",
+    "wash_care": "Wash & Care Instructions Label",
+    "bis_registration": "BIS Standard Mark & CRS Registration Plate",
+    "power_ratings": "Electrical Specification & Voltage Rating",
+    "pan_masala_warning": "Statutory Health Warning Notice (Front of Pack)",
+    "pan_masala_no_exemption": "Net Quantity & Statutory Package Declaration",
+    "qr_code_declaration": "Digital E-Label / QR Code Panel",
+}
+
+def get_package_element_for_rule(rule_id: str) -> str:
+    return PACKAGE_ELEMENT_MAP.get(rule_id.lower().strip(), "Principal Display Panel (PDP)")
+
+
 class LLMComplianceEvaluator:
     def __init__(self):
         # Support Groq API key directly or generic LLM_API_KEY
@@ -101,7 +136,7 @@ class LLMComplianceEvaluator:
             os.environ.get("GROQ_API_KEY")
             or os.environ.get("LLM_API_KEY")
             or ""
-        )
+        ).strip()
         # Require explicit LLM_BACKEND="groq" or "ollama" to activate remote LLM evaluation;
         # otherwise use the high-speed deterministic compliance engine with statutory citations.
         self.backend = os.environ.get("LLM_BACKEND", "none").strip().lower()
@@ -137,10 +172,13 @@ class LLMComplianceEvaluator:
             "CRITICAL RULES:\n"
             "1. Evaluate based ONLY on verbatim text from OCR scan.\n"
             "2. For every rule marked 'PASS', copy the exact verbatim text into 'exact_quote'. Do NOT invent text.\n"
-            "3. If a mandatory declaration is missing, mark status='FAIL', violation_type='missing', exact_quote=null.\n"
-            "4. Net Quantity must strictly use standard SI metric units ('g', 'kg', 'ml', 'L', 'N'). If non-standard symbols ('gms', 'gm', 'ltrs', 'kgs') are used, mark status='FAIL', violation_type='wrong_format'.\n"
-            "5. If exempt (e.g. food packages <= 10g exempt from nutritional info), mark status='EXEMPT'.\n"
-            "6. Keep 'explanation' extremely concise (maximum 10-15 words).\n"
+            "3. If a mandatory declaration is missing, mark status='FAIL', violation_type='missing', exact_quote=null, detected_on_package='Not printed on package (Missing from label)'.\n"
+            "4. For EVERY violation, explicitly report:\n"
+            "   - 'detected_on_package': what exact text/declaration is printed on the package (or 'Not printed on package')\n"
+            "   - 'expected_on_package': what the package is legally mandated to display instead\n"
+            "   - 'package_element': what specific area or component of the package packaging is in violation\n"
+            "5. Net Quantity must strictly use standard SI metric units ('g', 'kg', 'ml', 'L', 'N'). If non-standard symbols ('gms', 'gm', 'ltrs', 'kgs', '4x50g') are used, mark status='FAIL', violation_type='wrong_format'.\n"
+            "6. Keep 'explanation' concise (maximum 15 words).\n"
             "7. Return ONLY a valid JSON object matching the requested schema without any markdown formatting.\n\n"
             "JSON Schema:\n"
             "{\n"
@@ -154,9 +192,12 @@ class LLMComplianceEvaluator:
             '      "status": "PASS" | "FAIL" | "EXEMPT",\n'
             '      "extracted_value": "parsed value string or null",\n'
             '      "exact_quote": "exact verbatim substring from OCR text or null",\n'
+            '      "detected_on_package": "what was printed on the package (e.g. Net Qty: 4x50g)",\n'
+            '      "expected_on_package": "what the package must display (e.g. Standard single metric unit: 200 g)",\n'
+            '      "package_element": "package area in violation (e.g. Principal Display Panel - Net Quantity)",\n'
             '      "violation_type": "missing" | "wrong_format" | "too_small" | null,\n'
             '      "severity": "CRITICAL" | "MAJOR" | "MINOR" | null,\n'
-            '      "explanation": "rationale for finding"\n'
+            '      "explanation": "concise rationale for finding"\n'
             '    }\n'
             '  ]\n'
             "}"
@@ -218,7 +259,7 @@ class LLMComplianceEvaluator:
             ],
             "response_format": {"type": "json_object"},
             "temperature": 0.0,
-            "max_tokens": 800
+            "max_tokens": 2048
         }
 
         try:
@@ -247,7 +288,13 @@ class LLMComplianceEvaluator:
                 return None
 
             data = resp.json()
-            raw_response_text = data["choices"][0]["message"]["content"].strip()
+            raw_response_text = (data.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+            if not raw_response_text:
+                logger.warning(
+                    "Groq returned an empty model output (finish_reason=%s). Falling back to deterministic engine.",
+                    data.get("choices", [{}])[0].get("finish_reason", "unknown")
+                )
+                return None
             # Clean markdown JSON block formatting if present
             if raw_response_text.startswith("```"):
                 raw_response_text = re.sub(r"^```(?:json)?\s*", "", raw_response_text)
@@ -329,6 +376,26 @@ class LLMComplianceEvaluator:
                                 citation=citation
                             )
                         )
+                    package_elem = (
+                        ev.package_element
+                        or get_package_element_for_rule(rid)
+                    )
+                    expected_val = (
+                        ev.expected_on_package
+                        or rule_meta.get("expected_format")
+                        or f"Mandatory statutory declaration conforming to {rid.replace('_', ' ').title()} rules"
+                    )
+                    if ev.detected_on_package:
+                        detected_val = ev.detected_on_package
+                    elif ev.violation_type == "missing":
+                        detected_val = "Not printed on package (Missing from label artwork)"
+                    elif ev.exact_quote:
+                        detected_val = f"'{ev.exact_quote}'"
+                    elif ev.extracted_value:
+                        detected_val = f"'{ev.extracted_value}'"
+                    else:
+                        detected_val = "Non-compliant declaration on label"
+
                     violations.append(
                         ViolationDetail(
                             id=f"viol_llm_{rid}_{uuid.uuid4().hex[:12]}",
@@ -337,6 +404,9 @@ class LLMComplianceEvaluator:
                             violation_type=ev.violation_type or "missing",
                             severity=ev.severity or "CRITICAL",
                             description=ev.explanation,
+                            detected_on_package=detected_val,
+                            expected_on_package=expected_val,
+                            package_element=package_elem,
                             evidence_bbox=bbox if (bbox.x_max > 0) else None,
                             citation=citation
                         )

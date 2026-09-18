@@ -168,7 +168,7 @@ async def evaluate_image_compliance(
     summary="Evaluate Legal Metrology compliance from pre-computed OCR JSON output",
     description="Takes raw OCRScanResult JSON output and evaluates against category-scoped Legal Metrology DB ruleset.",
 )
-def evaluate_ocr_payload(
+async def evaluate_ocr_payload(
     ocr_result: OCRScanResult,
     category: Optional[str] = Query(default="general", description="Product category (food, cosmetics, textile, electronics, general)"),
     product_id: Optional[str] = Query(default=None, description="Optional Product ID to resolve category"),
@@ -195,7 +195,7 @@ def get_all_statutory_citations():
     citation_svc = get_citation_service()
     return {
         rule_id: cit.model_dump()
-        for rule_id, cit in citation_svc._citations.items()
+        for rule_id, cit in citation_svc.get_all_citations().items()
     }
 
 

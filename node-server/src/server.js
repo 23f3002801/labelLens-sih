@@ -21,7 +21,6 @@ async function buildServer() {
   // Register Routes
   await fastify.register(require("./routes/healthroute"));
   await fastify.register(require("./routes/authRoutes"), { prefix: "/api/v1/auth" });
-  await fastify.register(require("./routes/authRoutes"), { prefix: "/auth" });
   await fastify.register(require("./routes/uploadRoutes"), { prefix: "/api/v1/uploads" });
   await fastify.register(require("./routes/scanRoutes"), { prefix: "/api/v1" });
 

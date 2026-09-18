@@ -55,10 +55,13 @@ app.mount(
     name="uploads",
 )
 # Configure CORS for Web & Mobile Clients
+# Note: allow_credentials cannot be True when allow_origins is ["*"] per CORS spec.
+# Since FastAPI is a stateless compute engine called by the Node server (not browsers
+# directly), credentials are not needed here.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

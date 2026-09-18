@@ -32,6 +32,7 @@ export default function Navbar() {
 
   const navLinks = [
     { name: 'Solutions', path: '/', onClick: handleSolutionsClick },
+    { name: 'Inspector Console', path: '/dashboard' },
     { name: 'Regulatory Standards', path: '/regulatory-standards' },
     { name: 'Case Studies', path: '/case-studies' },
     { name: 'Documentation', path: '/documentation' }

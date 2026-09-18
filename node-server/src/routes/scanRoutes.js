@@ -1,6 +1,5 @@
 const scanController = require("../controllers/scanController");
 const jwt = require("jsonwebtoken");
-const prisma = require("../config/db");
 const { JWT_SECRET } = require("../middleware/auth");
 
 /**
@@ -14,13 +13,13 @@ async function optionalAuth(req, reply) {
     try {
       const token = authHeader.split(" ")[1];
       const decoded = jwt.verify(token, JWT_SECRET);
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.id },
-        select: { id: true, email: true, role: true, fullName: true },
-      });
-      if (user) {
-        req.user = user;
-      }
+      // Trust JWT payload — same approach as authenticateToken middleware
+      req.user = {
+        id: decoded.id,
+        email: decoded.email,
+        role: decoded.role,
+        fullName: decoded.fullName,
+      };
     } catch {
       // Ignore token verification errors for optional auth
     }
@@ -57,6 +56,11 @@ async function scanRoutes(fastify, options) {
 
   // Inspections list
   fastify.get("/inspections", scanController.listScans);
+
+  // Compliance Rules & Statutory Citations (proxied from FastAPI compute engine)
+  fastify.get("/compliance/rules", scanController.getComplianceRules);
+  fastify.get("/compliance/citations", scanController.getStatutoryCitations);
+  fastify.get("/compliance/citations-search", scanController.searchStatutoryCorpus);
 }
 
 module.exports = scanRoutes;

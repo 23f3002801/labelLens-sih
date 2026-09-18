@@ -7,6 +7,9 @@ class LLMRuleEvaluation(BaseModel):
     status: str = Field(..., description="Evaluation outcome: PASS, FAIL, or EXEMPT")
     extracted_value: Optional[str] = Field(default=None, description="Clean extracted value (e.g. ₹250.00, 100g)")
     exact_quote: Optional[str] = Field(default=None, description="Exact verbatim substring found in OCR text for grounding")
+    detected_on_package: Optional[str] = Field(default=None, description="Exact text or status found on packaging that caused violation")
+    expected_on_package: Optional[str] = Field(default=None, description="Legally mandated format or declaration that package must display")
+    package_element: Optional[str] = Field(default=None, description="Section or component of the package in violation (e.g. Principal Display Panel, Net Quantity Declaration)")
     violation_type: Optional[str] = Field(
         default=None,
         description="Violation category: missing, wrong_format, too_small, or other"

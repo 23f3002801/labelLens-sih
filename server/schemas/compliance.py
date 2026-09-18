@@ -38,6 +38,9 @@ class ViolationDetail(BaseModel):
     violation_type: str = Field(..., description="'missing', 'wrong_format', or 'too_small'")
     severity: str = Field(..., description="'CRITICAL', 'MAJOR', or 'MINOR'")
     description: str = Field(..., description="Detailed explanation of legal non-compliance")
+    detected_on_package: Optional[str] = Field(default=None, description="Exact text or status found on packaging that caused violation")
+    expected_on_package: Optional[str] = Field(default=None, description="Legally mandated format or declaration that package must display")
+    package_element: Optional[str] = Field(default=None, description="Section or component of the package in violation (e.g. Principal Display Panel, Net Quantity Declaration)")
     evidence_bbox: Optional[BBox] = Field(default=None, description="Location of non-compliant block")
     citation: Optional[LegalCitation] = Field(default=None, description="Official statutory Act/Rule citation for this violation")
 

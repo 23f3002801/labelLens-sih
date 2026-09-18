@@ -54,10 +54,18 @@ def init_db():
         from sqlalchemy import inspect, text
         inspector = inspect(engine)
         if "violations" in inspector.get_table_names():
-            cols = [c["name"] for c in inspector.get_columns("violations")]
-            if "citation" not in cols:
-                with engine.connect() as conn:
-                    conn.execute(text("ALTER TABLE violations ADD COLUMN citation JSON"))
-                    conn.commit()
+            existing_cols = [c["name"] for c in inspector.get_columns("violations")]
+            new_columns = {
+                "citation": "JSON",
+                "detected_on_package": "TEXT",
+                "expected_on_package": "TEXT",
+                "package_element": "TEXT",
+            }
+            with engine.connect() as conn:
+                for col_name, col_type in new_columns.items():
+                    if col_name not in existing_cols:
+                        conn.execute(text(f"ALTER TABLE violations ADD COLUMN {col_name} {col_type}"))
+                        logger.info("Schema migration: added column '%s' to violations table.", col_name)
+                conn.commit()
     except Exception as e:
         logger.warning(f"Database schema auto-migration warning: {e}")

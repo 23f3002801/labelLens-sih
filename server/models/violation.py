@@ -15,6 +15,9 @@ class Violation(Base):
     description = Column(String(500), nullable=False)
     evidence_bbox = Column(JSON, nullable=True) # Bounding box coordinates on image
     citation = Column(JSON, nullable=True) # Official Act, Rule, and statutory quote
+    detected_on_package = Column(String(500), nullable=True)  # What was actually printed on the label
+    expected_on_package = Column(String(500), nullable=True)  # What the law mandates to be printed
+    package_element = Column(String(200), nullable=True)      # Package area where violation occurs
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     inspection = relationship("Inspection", back_populates="violations")
