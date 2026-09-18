@@ -1,5 +1,7 @@
-const { PrismaClient } = require("@prisma/client");
-const { PrismaPg } = require("@prisma/adapter-pg");
+import prismaClientPackage from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+
+const { PrismaClient } = prismaClientPackage;
 
 const connectionString = process.env.DIRECT_URL || process.env.DATABASE_URL;
 
@@ -10,4 +12,4 @@ if (!connectionString) {
 const adapter = new PrismaPg({ connectionString });
 const prisma = new PrismaClient({ adapter });
 
-module.exports = prisma;
+export default prisma;

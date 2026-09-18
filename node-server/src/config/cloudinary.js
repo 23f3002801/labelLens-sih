@@ -1,4 +1,4 @@
-const cloudinary = require("cloudinary").v2;
+import { v2 as cloudinary } from "cloudinary";
 
 const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
 const apiKey = process.env.CLOUDINARY_API_KEY;
@@ -17,4 +17,4 @@ cloudinary.config({
   secure: true,
 });
 
-module.exports = cloudinary;
+export default cloudinary;

@@ -1,5 +1,5 @@
-const authController = require("../controllers/authController");
-const { authenticateToken } = require("../middleware/auth");
+import * as authController from "../controllers/authController.js";
+import { authenticateToken } from "../middleware/auth.js";
 
 async function authRoutes(fastify, options) {
   fastify.post("/register", authController.register);
@@ -8,4 +8,4 @@ async function authRoutes(fastify, options) {
   fastify.put("/me", { preHandler: [authenticateToken] }, authController.updateProfile);
 }
 
-module.exports = authRoutes;
+export default authRoutes;

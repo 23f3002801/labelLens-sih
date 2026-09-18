@@ -1,11 +1,13 @@
-require("dotenv").config();
-const fs = require("fs");
-const path = require("path");
-const prisma = require("../src/config/db");
+import "dotenv/config";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import prisma from "../src/config/db.js";
 
 async function main() {
   console.log("Seeding compliance rules into PostgreSQL...");
-  const rulesPath = path.resolve(__dirname, "../../server/rules.json");
+  const currentDir = path.dirname(fileURLToPath(import.meta.url));
+  const rulesPath = path.resolve(currentDir, "../../server/rules.json");
 
   let rules = [];
   if (fs.existsSync(rulesPath)) {

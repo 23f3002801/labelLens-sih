@@ -28,4 +28,4 @@ function set(key, value) {
   store.set(key, { expires: Date.now() + TTL_MS, value });
 }
 
-module.exports = { get, set };
+export { get, set };

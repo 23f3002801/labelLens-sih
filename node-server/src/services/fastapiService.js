@@ -137,7 +137,7 @@ async function unwrapVideo(videoBuffer, filename = "upload.mp4") {
   return await response.json();
 }
 
-module.exports = {
+export {
   runOcr,
   runOcrBase64,
   evaluateOcrCompliance,

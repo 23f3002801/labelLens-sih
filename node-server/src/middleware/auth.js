@@ -1,5 +1,5 @@
-const jwt = require("jsonwebtoken");
-const prisma = require("../config/db");
+import jwt from "jsonwebtoken";
+import prisma from "../config/db.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "labellens_default_jwt_secret_change_in_prod";
 
@@ -76,7 +76,7 @@ function requireRoles(...allowedRoles) {
   };
 }
 
-module.exports = {
+export {
   authenticateToken,
   requireRoles,
   JWT_SECRET,
