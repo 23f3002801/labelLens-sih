@@ -73,9 +73,9 @@ function ReportModalContent({ inspection, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="report-modal-backdrop fixed inset-0 z-50 overflow-y-auto bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       {/* Modal Card */}
-      <div className="bg-white text-slate-900 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+      <div className="report-modal-card bg-white text-slate-900 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
         
         {/* Modal Top Bar (Screen Only) */}
         <div className="no-print bg-slate-900 text-white px-6 py-4 flex items-center justify-between border-b border-slate-800">
@@ -203,12 +203,12 @@ function ReportModalContent({ inspection, onClose }) {
                   <span>Annotated Bounding Box Verification</span>
                   <span className="text-[10px] text-emerald-700 font-bold uppercase">AI Evaluated</span>
                 </div>
-                <div className="flex-1 min-h-[220px] max-h-[340px] flex items-center justify-center p-2 bg-white">
+                <div className="flex-1 min-h-[160px] max-h-[220px] flex items-center justify-center p-2 bg-white">
                   {evidenceImage ? (
                     <img 
                       src={evidenceImage} 
                       alt="Bounding Box Evidence" 
-                      className="max-h-[320px] w-auto max-w-full object-contain mx-auto rounded"
+                      className="max-h-[200px] w-auto max-w-full object-contain mx-auto rounded"
                     />
                   ) : (
                     <div className="text-slate-400 text-xs text-center p-6">
@@ -228,12 +228,12 @@ function ReportModalContent({ inspection, onClose }) {
                   <span>Exhibit B: Original Packaging Input</span>
                   <span className="text-[10px] text-slate-600 font-bold uppercase">Raw Capture</span>
                 </div>
-                <div className="flex-1 min-h-[220px] max-h-[340px] flex items-center justify-center p-2 bg-white">
+                <div className="flex-1 min-h-[160px] max-h-[220px] flex items-center justify-center p-2 bg-white">
                   {originalImage ? (
                     <img 
                       src={originalImage} 
                       alt="Raw Input Packaging" 
-                      className="max-h-[320px] w-auto max-w-full object-contain mx-auto rounded"
+                      className="max-h-[200px] w-auto max-w-full object-contain mx-auto rounded"
                     />
                   ) : (
                     <div className="text-slate-400 text-xs text-center p-6">
