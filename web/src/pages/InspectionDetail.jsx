@@ -332,8 +332,10 @@ export default function InspectionDetail() {
                         {v.description && (
                           <p className="text-xs text-on-error-container/80 mt-1">{v.description}</p>
                         )}
-                        {v.ruleCode && (
-                          <p className="text-[10px] text-on-error-container/60 mt-1 font-mono">{v.ruleCode}</p>
+                        {(v.citation?.rule_number || v.ruleCode) && (
+                          <p className="text-[10px] text-on-error-container/70 mt-1 font-mono font-semibold">
+                            📜 {v.citation?.rule_number || v.ruleCode.replace(/_/g, ' ')}
+                          </p>
                         )}
                       </div>
                     ))}

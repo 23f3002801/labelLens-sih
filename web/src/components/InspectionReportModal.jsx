@@ -640,7 +640,7 @@ function ReportModalContent({ inspection, onClose }) {
                       return (
                         <tr key={v.id ?? idx} className="hover:bg-rose-50/50 transition-colors">
                           <td className="p-2.5 font-mono font-bold text-slate-800 whitespace-nowrap align-top">
-                            {safeString(v.ruleCode || v.rule_code, 'PCR-2011')}
+                            {citationObj?.rule_number || safeString(v.ruleCode || v.rule_code, 'PCR-2011').replace(/_/g, ' ')}
                           </td>
                           <td className="p-2.5 align-top whitespace-nowrap">
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${

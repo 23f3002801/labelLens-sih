@@ -177,9 +177,16 @@ class LLMComplianceEvaluator:
             "   - 'detected_on_package': what exact text/declaration is printed on the package (or 'Not printed on package')\n"
             "   - 'expected_on_package': what the package is legally mandated to display instead\n"
             "   - 'package_element': what specific area or component of the package packaging is in violation\n"
-            "5. Net Quantity must strictly use standard SI metric units ('g', 'kg', 'ml', 'L', 'N'). If non-standard symbols ('gms', 'gm', 'ltrs', 'kgs', '4x50g') are used, mark status='FAIL', violation_type='wrong_format'.\n"
-            "6. Keep 'explanation' concise (maximum 15 words).\n"
-            "7. Return ONLY a valid JSON object matching the requested schema without any markdown formatting.\n\n"
+            "5. Net Quantity & Multi-Piece Package Rules (Rule 13 & Rule 24):\n"
+            "   - Standard SI units are: 'g', 'kg', 'ml', 'L', and 'N' or 'U' (where 'N' or 'U' is the STATUTORY symbol for Number/Count/Units under Rule 13(5)(ii)). 'N' is 100% legal for piece count!\n"
+            "   - Multi-piece packages (e.g. '30 N x 5 g' or '10 x 20 g'):\n"
+            "     * Declaring the piece count ('30 N') and unit weight ('5 g') is legally valid for individual pieces.\n"
+            "     * However, Rule 24 and Rule 2(kc) mandate that multi-piece packages MUST also declare the Total Net Quantity (e.g. '150 g' or '30 N x 5 g = 150 g').\n"
+            "     * If total net weight is missing, do NOT call 'N' non-standard! Mark violation_type='missing_total_quantity', explain: 'Multi-piece package declares individual units (30 N x 5 g) but omits mandatory Total Net Quantity (150 g) under Rule 24'.\n"
+            "   - Prohibited non-standard symbols are: 'gms', 'gm', 'ltrs', 'kgs'. If used, mark violation_type='wrong_format'.\n"
+            "6. Always preserve exact verbatim spacing and capitalization from OCR (e.g. '30 N x 5 g', never squish to '30Nx5g').\n"
+            "7. Keep 'explanation' concise (maximum 15 words).\n"
+            "8. Return ONLY a valid JSON object matching the requested schema without any markdown formatting.\n\n"
             "JSON Schema:\n"
             "{\n"
             '  "category": "string",\n'
@@ -192,10 +199,10 @@ class LLMComplianceEvaluator:
             '      "status": "PASS" | "FAIL" | "EXEMPT",\n'
             '      "extracted_value": "parsed value string or null",\n'
             '      "exact_quote": "exact verbatim substring from OCR text or null",\n'
-            '      "detected_on_package": "what was printed on the package (e.g. Net Qty: 4x50g)",\n'
-            '      "expected_on_package": "what the package must display (e.g. Standard single metric unit: 200 g)",\n'
+            '      "detected_on_package": "what was printed on the package (e.g. Net Qty: 30 N x 5 g)",\n'
+            '      "expected_on_package": "what the package must display (e.g. Total Net Quantity: 150 g (30 N x 5 g))",\n'
             '      "package_element": "package area in violation (e.g. Principal Display Panel - Net Quantity)",\n'
-            '      "violation_type": "missing" | "wrong_format" | "too_small" | null,\n'
+            '      "violation_type": "missing" | "wrong_format" | "too_small" | "missing_total_quantity" | null,\n'
             '      "severity": "CRITICAL" | "MAJOR" | "MINOR" | null,\n'
             '      "explanation": "concise rationale for finding"\n'
             '    }\n'

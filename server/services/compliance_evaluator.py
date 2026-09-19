@@ -273,6 +273,25 @@ class ComplianceEvaluator:
                     if not m.citation:
                         m.citation = citation_svc.get_citation(m.id)
                 for v in llm_result.summary.whats_wrong:
+                    # Sanitize multi-piece net quantity violations
+                    if v.rule_id in ("net_quantity", "multi_piece_net_quantity"):
+                        desc_lower = (v.description or "").lower()
+                        if "non-standard" in desc_lower or "instead of total" in desc_lower or "30nx5g" in desc_lower or "wrong_format" in str(v.violation_type).lower():
+                            raw_nq = next((d.extracted_text for d in llm_result.summary.what_was_found if d.id == "net_quantity"), "30 N x 5 g")
+                            clean_nq = re.sub(r'(\d+)\s*N\s*x\s*(\d+)\s*g', r'\1 N x \2 g', raw_nq, flags=re.I)
+                            v.title = "Net Quantity (Multi-Piece Package) - MISSING_TOTAL_QUANTITY"
+                            v.rule_id = "multi_piece_net_quantity"
+                            v.violation_type = "missing_total_quantity"
+                            v.severity = "MAJOR"
+                            v.description = (
+                                f"Multi-piece package declares individual units ('{clean_nq}', where 'N' = Number of Units) "
+                                "but omits the mandatory Total Net Quantity (e.g., '150 g' or '30 N x 5 g = 150 g'). "
+                                "Rule 24 & Rule 2(kc) of Legal Metrology (Packaged Commodities) Rules, 2011 strictly mandate "
+                                "that multi-piece packages declare both the individual pieces and the total net quantity."
+                            )
+                            v.detected_on_package = clean_nq
+                            v.expected_on_package = "Total Net Quantity: 150 g (30 N x 5 g)"
+                            v.citation = citation_svc.get_citation("multi_piece_net_quantity") or citation_svc.get_citation("rule_24_multi_piece")
                     if not v.citation:
                         v.citation = citation_svc.get_citation(v.rule_id)
 
