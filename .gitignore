@@ -44,3 +44,15 @@ Thumbs.db
 
 graphify-out/
 app/MOBILE_PLAN.txt
+
+# Internal planning doc
+IMPLEMENTATION.md
+
+# Government Gazette raw PDFs (~130 MB) & intermediate extraction dumps
+server/data/*.pdf
+server/data/extracted_english/*.txt
+server/data/extracted_english/*.json
+!server/data/extracted_english/all_extracted_english.json
+
+# Local test / regression datasets
+dataset/ocr_regression/

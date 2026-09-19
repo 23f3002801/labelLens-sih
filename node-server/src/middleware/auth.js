@@ -1,7 +1,15 @@
-const jwt = require("jsonwebtoken");
-const prisma = require("../config/db");
+import jwt from "jsonwebtoken";
+import prisma from "../config/db.js";
 
-const JWT_SECRET = process.env.JWT_SECRET || "labellens_default_jwt_secret_change_in_prod";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  // In development, set JWT_SECRET in your .env file.
+  // Never fall back to a hardcoded secret — attackers can forge admin tokens.
+  throw new Error(
+    "FATAL: JWT_SECRET environment variable is not set. " +
+    "Set it in your .env file before starting the server."
+  );
+}
 
 async function authenticateToken(req, reply) {
   try {
@@ -24,28 +32,16 @@ async function authenticateToken(req, reply) {
       });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.id },
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        role: true,
-        district: true,
-        state: true,
-        badgeNumber: true,
-        createdAt: true,
-      },
-    });
-
-    if (!user) {
-      return reply.code(401).send({
-        error: "Unauthorized",
-        message: "User associated with this token no longer exists",
-      });
-    }
-
-    req.user = user;
+    // Trust the JWT payload for normal requests — avoids a DB round-trip
+    // per authenticated call. The JWT already carries id, email, role, fullName
+    // (signed at login/register time). For sensitive ops that need the latest
+    // DB state, use requireFreshUser() instead.
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      role: decoded.role,
+      fullName: decoded.fullName,
+    };
   } catch (error) {
     req.log.error(error);
     return reply.code(500).send({
@@ -76,7 +72,7 @@ function requireRoles(...allowedRoles) {
   };
 }
 
-module.exports = {
+export {
   authenticateToken,
   requireRoles,
   JWT_SECRET,

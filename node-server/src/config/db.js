@@ -1,7 +1,9 @@
-const { PrismaClient } = require("@prisma/client");
-const { PrismaPg } = require("@prisma/adapter-pg");
+import prismaClientPackage from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 
-const connectionString = process.env.DIRECT_URL || process.env.DATABASE_URL;
+const { PrismaClient } = prismaClientPackage;
+
+const connectionString = process.env.DATABASE_URL || process.env.DIRECT_URL;
 
 if (!connectionString) {
   throw new Error("DATABASE_URL or DIRECT_URL is required to initialize Prisma");
@@ -10,4 +12,4 @@ if (!connectionString) {
 const adapter = new PrismaPg({ connectionString });
 const prisma = new PrismaClient({ adapter });
 
-module.exports = prisma;
+export default prisma;

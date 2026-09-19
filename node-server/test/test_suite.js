@@ -1,7 +1,7 @@
-require("dotenv").config();
-const assert = require("assert");
-const { buildServer } = require("../src/server");
-const prisma = require("../src/config/db");
+import "dotenv/config";
+import assert from "assert";
+import { buildServer } from "../src/server.js";
+import prisma from "../src/config/db.js";
 
 async function runTests() {
   console.log("=== Starting LabelLens Fastify Integration Test Suite ===\n");

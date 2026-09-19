@@ -45,11 +45,23 @@ app.mount(
     StaticFiles(directory=VIDEO_OUTPUT_DIR),
     name="video-files",
 )
+
+STORAGE_UPLOAD_DIR = Path(__file__).resolve().parent / "storage" / "uploads"
+STORAGE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+app.mount(
+    "/uploads",
+    StaticFiles(directory=STORAGE_UPLOAD_DIR),
+    name="uploads",
+)
 # Configure CORS for Web & Mobile Clients
+# Note: allow_credentials cannot be True when allow_origins is ["*"] per CORS spec.
+# Since FastAPI is a stateless compute engine called by the Node server (not browsers
+# directly), credentials are not needed here.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

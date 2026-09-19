@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import Navbar from '../components/layout/Navbar';
 import Footer from '../components/layout/Footer';
 
@@ -46,6 +47,25 @@ export default function LandingPage() {
                         <span className="font-label-md text-label-md text-on-surface font-semibold">{item.text}</span>
                       </div>
                     ))}
+                  </div>
+
+                  {/* Primary Call to Action */}
+                  <div className="flex flex-wrap items-center gap-space-sm pt-space-xs">
+                    <Link
+                      to="/dashboard"
+                      className="px-space-lg py-3 rounded-lg bg-primary hover:bg-primary-container text-on-primary font-label-lg text-label-lg font-semibold shadow-md hover:shadow-lg transition-all flex items-center gap-2"
+                    >
+                      <span className="material-symbols-outlined text-[20px]">document_scanner</span>
+                      <span>Launch Inspector Console</span>
+                      <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                    </Link>
+                    <Link
+                      to="/regulatory-standards"
+                      className="px-space-md py-3 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface border border-outline-variant font-label-lg text-label-lg font-medium transition-colors flex items-center gap-2"
+                    >
+                      <span className="material-symbols-outlined text-[18px] text-primary">policy</span>
+                      <span>Explore Statutory Corpus</span>
+                    </Link>
                   </div>
 
                   <div className="pt-space-2xs flex items-center gap-space-xs text-on-surface-variant font-label-sm text-label-sm">

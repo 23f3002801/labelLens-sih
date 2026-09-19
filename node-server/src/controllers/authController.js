@@ -1,7 +1,7 @@
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
-const prisma = require("../config/db");
-const { JWT_SECRET } = require("../middleware/auth");
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import prisma from "../config/db.js";
+import { JWT_SECRET } from "../middleware/auth.js";
 
 const VALID_ROLES = ["FIELD_INSPECTOR", "DISTRICT_OFFICER", "STATE_CONTROLLER", "ADMIN"];
 
@@ -169,13 +169,95 @@ async function login(req, reply) {
 }
 
 async function getMe(req, reply) {
-  return reply.code(200).send({
-    user: req.user,
-  });
+  // Auth middleware only provides JWT fields (id, email, role, fullName).
+  // Profile endpoint needs the full user record from DB.
+  try {
+    const prisma = require("../config/db");
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        district: true,
+        state: true,
+        badgeNumber: true,
+        createdAt: true,
+      },
+    });
+
+    if (!user) {
+      return reply.code(404).send({
+        error: "Not Found",
+        message: "User account no longer exists",
+      });
+    }
+
+    return reply.code(200).send({ user });
+  } catch (error) {
+    req.log.error(error);
+    return reply.code(500).send({
+      error: "Internal Server Error",
+      message: "Failed to retrieve profile",
+    });
+  }
 }
 
-module.exports = {
+async function updateProfile(req, reply) {
+  try {
+    const { fullName, district, state } = req.body || {};
+
+    if (fullName !== undefined && (!fullName || !String(fullName).trim())) {
+      return reply.code(400).send({
+        error: "Bad Request",
+        message: "Full name cannot be empty",
+      });
+    }
+
+    const data = {};
+    if (fullName !== undefined) data.fullName = String(fullName).trim();
+    if (district !== undefined) data.district = district ? String(district).trim() : null;
+    if (state !== undefined) data.state = state ? String(state).trim() : null;
+
+    if (Object.keys(data).length === 0) {
+      return reply.code(400).send({
+        error: "Bad Request",
+        message: "No updatable fields provided (fullName, district, state)",
+      });
+    }
+
+    const user = await prisma.user.update({
+      where: { id: req.user.id },
+      data,
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        district: true,
+        state: true,
+        badgeNumber: true,
+        createdAt: true,
+      },
+    });
+
+    return reply.code(200).send({
+      message: "Profile updated successfully",
+      user,
+    });
+  } catch (error) {
+    req.log.error(error);
+    return reply.code(500).send({
+      error: "Internal Server Error",
+      message: "Failed to update profile",
+    });
+  }
+}
+
+export {
   register,
   login,
   getMe,
+  updateProfile,
 };

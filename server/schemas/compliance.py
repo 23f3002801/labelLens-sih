@@ -2,6 +2,14 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from schemas.ocr import BBox, OCRScanResult
 
+class LegalCitation(BaseModel):
+    act_name: str = Field(..., description="Name of the governing Act or Regulation")
+    rule_number: Optional[str] = Field(default=None, description="Specific Rule, Section, or Clause (e.g. 'Rule 6(1)(e)')")
+    section_title: Optional[str] = Field(default=None, description="Title of the section or statutory requirement")
+    source_document: str = Field(..., description="Source document or Gazette notification (e.g. G.S.R. 779(E))")
+    page_number: Optional[int] = Field(default=None, description="Page number in the source document")
+    statutory_quote: str = Field(..., description="Verbatim statutory requirement text")
+
 class DeclarationFound(BaseModel):
     id: str = Field(..., description="Rule ID (e.g., mrp, net_quantity)")
     field_name: str = Field(..., description="Human readable declaration name")
@@ -14,12 +22,14 @@ class DeclarationFound(BaseModel):
     format_valid: bool = Field(default=True, description="True if text matches mandated Legal Metrology format")
     size_valid: bool = Field(default=True, description="True if font size meets minimum height requirement")
     status: str = Field(default="COMPLIANT", description="COMPLIANT, FORMAT_ERROR, or TOO_SMALL")
+    citation: Optional[LegalCitation] = Field(default=None, description="Official statutory Act/Rule citation")
 
 class DeclarationMissing(BaseModel):
     id: str = Field(..., description="Rule ID of missing declaration")
     field_name: str = Field(..., description="Human readable name of missing declaration")
     description: str = Field(..., description="Legal requirement description")
     required: bool = Field(..., description="Whether this declaration is mandatory")
+    citation: Optional[LegalCitation] = Field(default=None, description="Official statutory Act/Rule citation")
 
 class ViolationDetail(BaseModel):
     id: str = Field(..., description="Unique violation ID")
@@ -28,7 +38,11 @@ class ViolationDetail(BaseModel):
     violation_type: str = Field(..., description="'missing', 'wrong_format', or 'too_small'")
     severity: str = Field(..., description="'CRITICAL', 'MAJOR', or 'MINOR'")
     description: str = Field(..., description="Detailed explanation of legal non-compliance")
+    detected_on_package: Optional[str] = Field(default=None, description="Exact text or status found on packaging that caused violation")
+    expected_on_package: Optional[str] = Field(default=None, description="Legally mandated format or declaration that package must display")
+    package_element: Optional[str] = Field(default=None, description="Section or component of the package in violation (e.g. Principal Display Panel, Net Quantity Declaration)")
     evidence_bbox: Optional[BBox] = Field(default=None, description="Location of non-compliant block")
+    citation: Optional[LegalCitation] = Field(default=None, description="Official statutory Act/Rule citation for this violation")
 
 class ComplianceSummary(BaseModel):
     what_was_found: List[DeclarationFound] = Field(..., description="List of all detected legal declarations")
