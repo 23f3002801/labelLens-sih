@@ -19,7 +19,7 @@
     "legal-metrology"
   ],
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
     "@fastify/cors": "^10.1.0",
     "@fastify/multipart": "^10.1.1",

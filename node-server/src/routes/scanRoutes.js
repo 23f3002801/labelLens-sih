@@ -1,7 +1,7 @@
-const scanController = require("../controllers/scanController");
-const jwt = require("jsonwebtoken");
-const prisma = require("../config/db");
-const { JWT_SECRET } = require("../middleware/auth");
+import * as scanController from "../controllers/scanController.js";
+import jwt from "jsonwebtoken";
+import prisma from "../config/db.js";
+import { JWT_SECRET } from "../middleware/auth.js";
 
 /**
  * Optional user authentication preHandler:
@@ -59,4 +59,4 @@ async function scanRoutes(fastify, options) {
   fastify.get("/inspections", scanController.listScans);
 }
 
-module.exports = scanRoutes;
+export default scanRoutes;

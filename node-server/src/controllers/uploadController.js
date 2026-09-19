@@ -1,4 +1,4 @@
-const { uploadBuffer } = require("../services/cloudinaryService");
+import { uploadBuffer } from "../services/cloudinaryService.js";
 
 const ALLOWED_IMAGE_MIMES = [
   "image/jpeg",
@@ -54,6 +54,6 @@ async function uploadRawFile(req, reply) {
   }
 }
 
-module.exports = {
+export {
   uploadRawFile,
 };

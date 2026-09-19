@@ -16,10 +16,10 @@
  *
  * Run: node scripts/migrate-annotated-images.js
  */
-require("dotenv").config();
-const prisma = require("../src/config/db");
-const { uploadBuffer } = require("../src/services/cloudinaryService");
-const { extractAnnotatedImage } = require("../src/controllers/scanController");
+import "dotenv/config";
+import prisma from "../src/config/db.js";
+import { uploadBuffer } from "../src/services/cloudinaryService.js";
+import { extractAnnotatedImage } from "../src/controllers/scanController.js";
 
 async function main() {
   console.log("Loading inspections…");

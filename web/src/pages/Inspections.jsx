@@ -1,22 +1,41 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import api from '../services/api';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 
 export default function Inspections() {
+  const location = useLocation();
   // Seed from cache synchronously (fresh or stale) so revisiting the page
   // never flashes a skeleton, then revalidate in the background.
   const [inspections, setInspections] = useState(() => api.peekInspections(1, 100)?.data?.items ?? []);
   const [loading, setLoading] = useState(() => !api.peekInspections(1, 100));
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('all');
+  const [pendingCount, setPendingCount] = useState(() => api.getPendingScans().length);
 
   useEffect(() => {
     const unsubscribe = api.subscribeInspections(1, 100, (d) => {
       setInspections(d?.items ?? []);
     });
+    const handleResultsReady = () => {
+      // The dashboard emits this as soon as a background scan changes from
+      // PROCESSING to its final status. Reload now rather than waiting for a
+      // browser refresh or the next polling interval.
+      loadInspections();
+      setPendingCount(api.getPendingScans().length);
+    };
+    window.addEventListener('almac:scan-results-ready', handleResultsReady);
     loadInspections();
-    return unsubscribe;
+    const timer = window.setInterval(() => {
+      const count = api.getPendingScans().length;
+      setPendingCount(count);
+      if (count) loadInspections();
+    }, 4000);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('almac:scan-results-ready', handleResultsReady);
+      window.clearInterval(timer);
+    };
   }, []);
 
   const loadInspections = async () => {
@@ -48,6 +67,13 @@ export default function Inspections() {
             New Scan
           </Link>
         </div>
+
+        {location.state?.queued > 0 && pendingCount > 0 && (
+          <div className="flex items-start gap-3 p-4 rounded-xl bg-secondary-container/60 border border-secondary/20 text-on-secondary-container">
+            <span className="material-symbols-outlined">hourglass_top</span>
+            <div><p className="font-semibold">{pendingCount} inspection{pendingCount > 1 ? 's are' : ' is'} being processed</p><p className="text-sm">You can continue working here. We’ll notify you when each result is ready.</p></div>
+          </div>
+        )}
 
         {/* Filters */}
         <div className="flex gap-2">
@@ -138,12 +164,12 @@ export default function Inspections() {
                         <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold ${
                           inspection.status === 'compliant' ? 'bg-success-container text-on-success-container' : 
                           inspection.status === 'pending' ? 'bg-secondary-container text-on-secondary-container' :
-                          'bg-error-container text-on-error-container'
+                          inspection.status === 'failed' ? 'bg-error-container text-on-error-container' : 'bg-error-container text-on-error-container'
                         }`}>
                           <span className="material-symbols-outlined text-[14px]">
-                            {inspection.status === 'compliant' ? 'check_circle' : inspection.status === 'pending' ? 'pending' : 'error'}
+                            {inspection.status === 'compliant' ? 'check_circle' : inspection.status === 'pending' ? 'hourglass_top' : 'error'}
                           </span>
-                          {inspection.status === 'compliant' ? 'Compliant' : inspection.status === 'pending' ? 'Pending' : 'Non-Compliant'}
+                          {inspection.status === 'compliant' ? 'Compliant' : inspection.status === 'pending' ? 'Waiting for result' : inspection.status === 'failed' ? 'Processing failed' : 'Non-Compliant'}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm font-medium text-on-surface">{inspection.violationsCount ?? 0}</td>

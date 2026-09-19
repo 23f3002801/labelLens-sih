@@ -57,10 +57,10 @@ export default function InspectionDetail() {
           </div>
           {inspection && (
             <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold ${
-              inspection.status === 'compliant' ? 'bg-success-container text-on-success-container' : 'bg-error-container text-on-error-container'
+              inspection.status === 'compliant' ? 'bg-success-container text-on-success-container' : inspection.status === 'pending' ? 'bg-secondary-container text-on-secondary-container' : 'bg-error-container text-on-error-container'
             }`}>
-              <span className="material-symbols-outlined text-[18px]">{inspection.status === 'compliant' ? 'check_circle' : 'error'}</span>
-              {inspection.status === 'compliant' ? '100% Compliant' : 'Violations Found'}
+              <span className="material-symbols-outlined text-[18px]">{inspection.status === 'compliant' ? 'check_circle' : inspection.status === 'pending' ? 'hourglass_top' : 'error'}</span>
+              {inspection.status === 'compliant' ? 'Compliant' : inspection.status === 'pending' ? 'Waiting for result' : inspection.status === 'failed' ? 'Processing failed' : 'Non-Compliant'}
             </span>
           )}
         </div>
@@ -112,6 +112,13 @@ export default function InspectionDetail() {
                   </div>
                 </div>
               </div>
+
+              {inspection.status === 'failed' && (
+                <div className="bg-error-container rounded-2xl p-5 border border-error/30">
+                  <h3 className="font-semibold text-on-error-container mb-1">Processing could not be completed</h3>
+                  <p className="text-sm text-on-error-container/80">{inspection.ocrResult?.error || 'Please verify that the Python OCR service is running, then upload the file again.'}</p>
+                </div>
+              )}
 
               {/* Violations List */}
               {inspection.violations?.length > 0 && (
