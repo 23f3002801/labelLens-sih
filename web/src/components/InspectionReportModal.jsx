@@ -1,6 +1,57 @@
-import React from 'react';
+import React, { Component } from 'react';
 
-export default function InspectionReportModal({ inspection, onClose }) {
+// Error boundary to protect modal from ever crashing the page
+class ReportErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('InspectionReportModal Error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center space-y-4 shadow-2xl">
+            <span className="material-symbols-outlined text-rose-500 text-5xl">report_problem</span>
+            <h3 className="text-lg font-bold text-slate-900">Failed to render report preview</h3>
+            <p className="text-xs text-slate-500 font-mono break-all">{this.state.error?.message || 'Unknown error'}</p>
+            <button
+              onClick={this.props.onClose}
+              className="px-4 py-2 bg-slate-800 text-white text-sm font-semibold rounded-lg"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function safeString(val, fallback = '') {
+  if (val === null || val === undefined) return fallback;
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+  if (typeof val === 'object') {
+    if (val.text) return safeString(val.text, fallback);
+    if (val.value) return safeString(val.value, fallback);
+    if (val.name) return safeString(val.name, fallback);
+    if (val.raw) return safeString(val.raw, fallback);
+    return JSON.stringify(val);
+  }
+  return String(val);
+}
+
+function ReportModalContent({ inspection, onClose }) {
   if (!inspection) return null;
 
   const isCompliant = inspection.status === 'compliant' || inspection.status === 'COMPLIANT';
@@ -59,7 +110,7 @@ export default function InspectionReportModal({ inspection, onClose }) {
           {/* Government / Department Official Header */}
           <div className="border-b-2 border-slate-900 pb-4 flex flex-col md:flex-row items-center justify-between gap-4 text-center md:text-left">
             <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-xl bg-emerald-900 text-white flex flex-col items-center justify-center font-bold tracking-tighter p-1 border-2 border-emerald-700">
+              <div className="w-16 h-16 rounded-xl bg-emerald-900 text-white flex flex-col items-center justify-center font-bold tracking-tighter p-1 border-2 border-emerald-700 flex-shrink-0">
                 <span className="material-symbols-outlined text-2xl text-emerald-300">shield</span>
                 <span className="text-[9px] uppercase font-mono tracking-widest text-emerald-200">GOVT</span>
               </div>
@@ -117,19 +168,19 @@ export default function InspectionReportModal({ inspection, onClose }) {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
             <div>
               <span className="text-slate-500 block uppercase font-medium">Scan ID</span>
-              <span className="font-mono font-semibold text-slate-800 break-all">{inspection.id}</span>
+              <span className="font-mono font-semibold text-slate-800 break-all">{safeString(inspection.id)}</span>
             </div>
             <div>
               <span className="text-slate-500 block uppercase font-medium">Inspecting Officer</span>
-              <span className="font-semibold text-slate-800">{inspection.inspector?.fullName || inspection.inspector?.email || 'Officer Verma (Field Inspector)'}</span>
+              <span className="font-semibold text-slate-800">{safeString(inspection.inspector?.fullName || inspection.inspector?.email, 'Officer Verma (Field Inspector)')}</span>
             </div>
             <div>
               <span className="text-slate-500 block uppercase font-medium">Jurisdiction</span>
-              <span className="font-semibold text-slate-800">{inspection.inspector?.district || 'Central Enforcement Unit'}</span>
+              <span className="font-semibold text-slate-800">{safeString(inspection.inspector?.district, 'Central Enforcement Unit')}</span>
             </div>
             <div>
               <span className="text-slate-500 block uppercase font-medium">Commodity Category</span>
-              <span className="font-semibold text-slate-800 uppercase">{inspection.category || 'General Packaged Commodity'}</span>
+              <span className="font-semibold text-slate-800 uppercase">{safeString(inspection.category, 'General Packaged Commodity')}</span>
             </div>
           </div>
 
@@ -216,31 +267,53 @@ export default function InspectionReportModal({ inspection, onClose }) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-rose-100 bg-white">
-                    {violations.map((v, idx) => (
-                      <tr key={v.id ?? idx} className="hover:bg-rose-50/50 transition-colors">
-                        <td className="p-2.5 font-mono font-bold text-slate-800 whitespace-nowrap align-top">
-                          {v.ruleCode || v.rule_code || 'PCR-2011'}
-                        </td>
-                        <td className="p-2.5 align-top whitespace-nowrap">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                            (v.severity || '').toLowerCase() === 'critical'
-                              ? 'bg-red-100 text-red-800'
-                              : 'bg-amber-100 text-amber-800'
-                          }`}>
-                            {v.severity || 'MAJOR'}
-                          </span>
-                        </td>
-                        <td className="p-2.5 text-slate-800">
-                          <div className="font-bold text-slate-900">{v.title}</div>
-                          {v.description && <div className="text-slate-600 mt-0.5">{v.description}</div>}
-                          {v.citation && (
-                            <div className="text-[11px] font-serif text-emerald-800 mt-1 italic bg-emerald-50/70 p-1.5 rounded border border-emerald-200">
-                              📜 Statutory Gazette: {v.citation}
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    {violations.map((v, idx) => {
+                      const citationObj = typeof v.citation === 'object' && v.citation !== null ? v.citation : null;
+                      const citationText = typeof v.citation === 'string' ? v.citation : null;
+
+                      return (
+                        <tr key={v.id ?? idx} className="hover:bg-rose-50/50 transition-colors">
+                          <td className="p-2.5 font-mono font-bold text-slate-800 whitespace-nowrap align-top">
+                            {safeString(v.ruleCode || v.rule_code, 'PCR-2011')}
+                          </td>
+                          <td className="p-2.5 align-top whitespace-nowrap">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                              safeString(v.severity).toLowerCase() === 'critical'
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}>
+                              {safeString(v.severity, 'MAJOR')}
+                            </span>
+                          </td>
+                          <td className="p-2.5 text-slate-800">
+                            <div className="font-bold text-slate-900">{safeString(v.title, 'Statutory Violation')}</div>
+                            {v.description && <div className="text-slate-600 mt-0.5">{safeString(v.description)}</div>}
+                            
+                            {/* Rich Statutory Citation Rendering */}
+                            {(citationObj || citationText) && (
+                              <div className="text-[11px] font-serif text-emerald-800 mt-1 italic bg-emerald-50/70 p-2 rounded border border-emerald-200 space-y-0.5">
+                                <div className="font-bold font-sans not-italic text-[10px] uppercase text-emerald-950 flex items-center gap-1">
+                                  <span>📜</span>
+                                  <span>
+                                    Statutory Citation: {citationObj ? (citationObj.rule_number || citationObj.act_name || 'Gazette Notification') : citationText}
+                                  </span>
+                                </div>
+                                {citationObj?.statutory_quote && (
+                                  <div className="text-[11px] text-emerald-900 mt-0.5">
+                                    "{citationObj.statutory_quote}"
+                                  </div>
+                                )}
+                                {citationObj?.source_document && (
+                                  <div className="text-[9px] text-slate-500 not-italic font-mono mt-0.5">
+                                    Source: {citationObj.source_document} {citationObj.page_number ? `(Page ${citationObj.page_number})` : ''}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -268,10 +341,10 @@ export default function InspectionReportModal({ inspection, onClose }) {
                     {declarations.map((d, idx) => (
                       <tr key={idx}>
                         <td className="p-2.5 font-medium text-slate-800 capitalize">
-                          {typeof d === 'string' ? d : d.field || d.name || `Declaration #${idx + 1}`}
+                          {typeof d === 'string' ? d : safeString(d.field || d.name, `Declaration #${idx + 1}`)}
                         </td>
                         <td className="p-2.5 text-slate-700 font-mono text-[11px]">
-                          {typeof d === 'string' ? 'Verified on package' : d.value || d.detected || 'Present'}
+                          {typeof d === 'string' ? 'Verified on package' : safeString(d.value || d.detected || d.detected_text, 'Present')}
                         </td>
                         <td className="p-2.5 text-emerald-700 font-semibold flex items-center gap-1">
                           <span className="material-symbols-outlined text-sm text-emerald-600">check_circle</span>
@@ -335,5 +408,13 @@ export default function InspectionReportModal({ inspection, onClose }) {
 
       </div>
     </div>
+  );
+}
+
+export default function InspectionReportModal(props) {
+  return (
+    <ReportErrorBoundary onClose={props.onClose}>
+      <ReportModalContent {...props} />
+    </ReportErrorBoundary>
   );
 }
