@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../services/api';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
-import InspectionReportModal from '../components/InspectionReportModal';
+import InspectionReportModal, { resolveDeclarationInfo } from '../components/InspectionReportModal';
 
 export default function InspectionDetail() {
   const { id } = useParams();
@@ -63,6 +63,25 @@ export default function InspectionDetail() {
       ? (inspection?.annotatedImageUrl || inspection?.annotatedImagePath || inspection?.imageUrl)
       : inspection?.imageUrl;
 
+  const declarations = Array.isArray(inspection?.extractedDeclarations)
+    ? inspection.extractedDeclarations
+    : Array.isArray(inspection?.extracted_declarations)
+      ? inspection.extracted_declarations
+      : [];
+
+  const productName =
+    inspection?.productName ||
+    inspection?.product_name ||
+    inspection?.product?.brandName ||
+    inspection?.product?.commodityName ||
+    (declarations.find(d => (d.field_name || d.field || d.name) === 'commodity_name' || (d.field_name || d.field || d.name) === 'product_name')?.extracted_text) ||
+    'Packaged Consumer Commodity';
+
+  const category =
+    inspection?.category ||
+    inspection?.product?.category ||
+    'General Pre-Packaged Commodity';
+
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
@@ -74,8 +93,14 @@ export default function InspectionDetail() {
               <span className="material-symbols-outlined text-[16px]">arrow_back</span>
               Back to Inspections
             </Link>
-            <h1 className="text-3xl font-bold text-on-surface">Inspection Details</h1>
-            <p className="text-on-surface-variant font-mono text-xs mt-0.5">Scan ID: {id}</p>
+            <h1 className="text-3xl font-bold text-on-surface">{productName}</h1>
+            <div className="flex items-center gap-2 mt-1 flex-wrap text-xs">
+              <span className="px-2.5 py-0.5 rounded-full font-semibold bg-primary/10 text-primary uppercase">
+                {category}
+              </span>
+              <span className="text-on-surface-variant">•</span>
+              <span className="text-on-surface-variant font-mono">Scan ID: {id}</span>
+            </div>
           </div>
           {inspection && (
             <div className="flex items-center gap-3">
@@ -180,6 +205,55 @@ export default function InspectionDetail() {
                   </div>
                 )}
               </div>
+
+              {/* Mandatory Statutory Declarations Card */}
+              {declarations.length > 0 && (
+                <div className="mt-6 pt-6 border-t border-outline-variant/30">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="font-semibold text-on-surface flex items-center gap-2">
+                      <span className="material-symbols-outlined text-primary text-xl">fact_check</span>
+                      Mandatory Statutory Declarations (Legal Metrology PCR Rule 6)
+                    </h4>
+                    <span className="text-xs text-on-surface-variant font-mono bg-surface-container-low px-2 py-0.5 rounded">
+                      {declarations.length} Marks Evaluated
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {declarations.map((d, idx) => {
+                      const decl = resolveDeclarationInfo(d, idx);
+                      return (
+                        <div
+                          key={idx}
+                          className="p-3.5 rounded-xl bg-surface-container-low border border-outline-variant/30 flex flex-col justify-between gap-2"
+                        >
+                          <div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-bold text-on-surface">{decl.title}</span>
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-surface-container-highest text-on-surface-variant">
+                                {decl.rule}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-on-surface-variant mt-0.5 leading-snug">
+                              {decl.description}
+                            </p>
+                          </div>
+                          <div className="pt-2 border-t border-outline-variant/20 flex items-center justify-between gap-2">
+                            <span className="font-mono text-xs font-semibold text-primary truncate max-w-[200px]" title={decl.extractedValue}>
+                              {decl.extractedValue}
+                            </span>
+                            <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-full">
+                              <span className="material-symbols-outlined text-xs">check_circle</span>
+                              Verified
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
             </div>
 
             {/* Details & Actions Column */}
@@ -187,8 +261,25 @@ export default function InspectionDetail() {
               
               {/* Scan Information Card */}
               <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-sm border border-outline-variant/30">
-                <h3 className="font-semibold text-on-surface mb-4">Inspection Summary</h3>
+                <h3 className="font-semibold text-on-surface mb-4 flex items-center justify-between">
+                  <span>Inspection Summary</span>
+                  <span className="text-xs font-mono font-normal text-on-surface-variant">
+                    #{String(inspection.id).slice(0, 8)}
+                  </span>
+                </h3>
                 <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-on-surface-variant uppercase tracking-wider mb-1">Product Name</p>
+                    <p className="font-bold text-on-surface text-base">
+                      {productName}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-on-surface-variant uppercase tracking-wider mb-1">Product Category</p>
+                    <span className="inline-block px-2.5 py-1 rounded-lg bg-surface-container-low border border-outline-variant/40 text-xs font-bold text-primary uppercase">
+                      {category}
+                    </span>
+                  </div>
                   <div>
                     <p className="text-xs text-on-surface-variant uppercase tracking-wider mb-1">Date & Time</p>
                     <p className="font-medium text-on-surface">

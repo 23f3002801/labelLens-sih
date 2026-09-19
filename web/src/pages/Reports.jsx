@@ -47,9 +47,11 @@ export default function Reports() {
 
   const exportCSV = () => {
     if (!inspections.length) return;
-    const headers = ['Scan ID', 'Date', 'Status', 'Compliance Score (%)', 'Violations Count', 'Original Image', 'Annotated Image'];
+    const headers = ['Scan ID', 'Product Name', 'Category', 'Date', 'Status', 'Compliance Score (%)', 'Violations Count', 'Original Image', 'Annotated Image'];
     const rows = inspections.map((i) => [
       i.id,
+      i.productName || 'Packaged Commodity',
+      i.category || 'General Pre-Packaged Commodity',
       i.createdAt ? new Date(i.createdAt).toISOString() : '',
       i.status,
       Math.round(i.complianceScore ?? 0),
@@ -74,7 +76,8 @@ export default function Reports() {
     const matchesSearch =
       !searchQuery ||
       item.id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.productName?.toLowerCase().includes(searchQuery.toLowerCase());
+      item.productName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.category?.toLowerCase().includes(searchQuery.toLowerCase());
 
     const isPass = item.status === 'compliant' || item.status === 'COMPLIANT';
     const matchesStatus =
@@ -293,8 +296,11 @@ export default function Reports() {
                           <div className="font-mono text-xs font-bold text-on-surface">
                             {String(item.id).slice(0, 18)}...
                           </div>
-                          <div className="text-xs text-on-surface-variant mt-0.5">
-                            {item.productName || 'General Packaged Commodity'}
+                          <div className="text-xs font-semibold text-on-surface mt-0.5">
+                            {item.productName || 'Packaged Commodity'}
+                          </div>
+                          <div className="text-[11px] text-on-surface-variant font-medium">
+                            {item.category || 'General Pre-Packaged Commodity'}
                           </div>
                         </td>
 

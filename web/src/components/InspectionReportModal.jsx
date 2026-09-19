@@ -51,6 +51,243 @@ function safeString(val, fallback = '') {
   return String(val);
 }
 
+// Legal Metrology (Packaged Commodities) Rules, 2011 & FSSAI declaration specifications
+const STATUTORY_DECLARATION_SPECS = {
+  mrp: {
+    name: 'Maximum Retail Price (MRP)',
+    rule: 'Rule 6(1)(e)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Inclusive of all taxes; mandatory on Principal Display Panel',
+  },
+  maximum_retail_price: {
+    name: 'Maximum Retail Price (MRP)',
+    rule: 'Rule 6(1)(e)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Inclusive of all taxes; mandatory on Principal Display Panel',
+  },
+  net_quantity: {
+    name: 'Net Quantity / Net Weight',
+    rule: 'Rule 6(1)(f) & Rule 12',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Accurate weight/volume in standard metric units conforming to font height requirements',
+  },
+  net_weight: {
+    name: 'Net Quantity / Net Weight',
+    rule: 'Rule 6(1)(f) & Rule 12',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Standard metric unit declaration conforming to Schedule I/II',
+  },
+  quantity: {
+    name: 'Net Quantity / Count',
+    rule: 'Rule 6(1)(f)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Prescribed numerical count or measure standard',
+  },
+  manufacturer: {
+    name: 'Manufacturer Name & Complete Address',
+    rule: 'Rule 6(1)(a)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Complete postal address with premises, city, state, and postal code',
+  },
+  manufacturer_name: {
+    name: 'Manufacturer Name & Complete Address',
+    rule: 'Rule 6(1)(a)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Complete postal address with premises, city, state, and postal code',
+  },
+  packer: {
+    name: 'Packer / Pre-packer Name & Address',
+    rule: 'Rule 6(1)(a)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Complete packaging premises identification and contact details',
+  },
+  importer: {
+    name: 'Importer Name & Address',
+    rule: 'Rule 6(1)(a)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Registered Indian business office details for imported commodities',
+  },
+  mfg_date: {
+    name: 'Month & Year of Manufacture / Pre-packing',
+    rule: 'Rule 6(1)(d)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Month and year in which the commodity is manufactured, packed, or imported',
+  },
+  date_of_manufacture: {
+    name: 'Month & Year of Manufacture / Pre-packing',
+    rule: 'Rule 6(1)(d)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Month and year in which the commodity is manufactured or packed',
+  },
+  expiry_date: {
+    name: 'Best Before / Expiry / Use By Date',
+    rule: 'Rule 6(1)(d) & FSSAI',
+    authority: 'LM (PC) Rules, 2011 & Food Safety Reg.',
+    description: 'Clear duration of safe shelf life and consumption threshold',
+  },
+  best_before: {
+    name: 'Best Before / Expiry Date',
+    rule: 'Rule 6(1)(d) & FSSAI',
+    authority: 'LM (PC) Rules, 2011 & Food Safety Reg.',
+    description: 'Clear duration of safe shelf life and consumption threshold',
+  },
+  consumer_care: {
+    name: 'Consumer Care & Grievance Redressal Cell',
+    rule: 'Rule 6(1)(da)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Name, address, telephone number, and email ID of consumer redressal officer',
+  },
+  consumer_care_details: {
+    name: 'Consumer Care & Grievance Redressal Cell',
+    rule: 'Rule 6(1)(da)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Name, address, telephone number, and email ID of consumer redressal officer',
+  },
+  customer_care: {
+    name: 'Consumer Care & Grievance Redressal Cell',
+    rule: 'Rule 6(1)(da)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Name, address, telephone number, and email ID of consumer redressal officer',
+  },
+  country_of_origin: {
+    name: 'Country of Origin / Sourcing',
+    rule: 'Rule 6(10)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Mandatory origin statement for all domestic and imported goods',
+  },
+  commodity_name: {
+    name: 'Common / Generic Name of Commodity',
+    rule: 'Rule 6(1)(b)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Standard product identity on Principal Display Panel',
+  },
+  product_name: {
+    name: 'Product Name / Commodity Identification',
+    rule: 'Rule 6(1)(b)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Clear commodity identification and branding',
+  },
+  unit_sale_price: {
+    name: 'Unit Sale Price (USP)',
+    rule: 'Rule 6(11)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Price per unit (per g / per ml / per piece) for price transparency',
+  },
+  usp: {
+    name: 'Unit Sale Price (USP)',
+    rule: 'Rule 6(11)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Price per unit (per g / per ml / per piece) for price transparency',
+  },
+  batch_number: {
+    name: 'Batch / Lot / Code Number',
+    rule: 'Rule 6(1)(c)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Traceable lot identifier for quality control and recall audit',
+  },
+  lot_number: {
+    name: 'Batch / Lot / Code Number',
+    rule: 'Rule 6(1)(c)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Traceable lot identifier for quality control and recall audit',
+  },
+  fssai_license: {
+    name: 'FSSAI License / Registration Number',
+    rule: 'FSS (L&D) Reg. 2020',
+    authority: 'Food Safety and Standards Authority of India',
+    description: '14-digit state/central license number with FSSAI statutory emblem',
+  },
+  fssai_number: {
+    name: 'FSSAI License / Registration Number',
+    rule: 'FSS (L&D) Reg. 2020',
+    authority: 'Food Safety and Standards Authority of India',
+    description: '14-digit state/central license number with FSSAI statutory emblem',
+  },
+  veg_nonveg: {
+    name: 'Vegetarian / Non-Vegetarian Symbol',
+    rule: 'FSS (L&D) Reg. 2020',
+    authority: 'Food Safety and Standards Authority of India',
+    description: 'Mandatory green filled circle or brown filled triangle within square outline',
+  },
+  nutritional_info: {
+    name: 'Nutritional Information Panel',
+    rule: 'FSS (L&D) Reg. 2020',
+    authority: 'Food Safety and Standards Authority of India',
+    description: 'Nutritional values per 100g/serving including energy, sugar, saturated fat, sodium',
+  },
+  nutritional_information: {
+    name: 'Nutritional Information Panel',
+    rule: 'FSS (L&D) Reg. 2020',
+    authority: 'Food Safety and Standards Authority of India',
+    description: 'Nutritional values per 100g/serving including energy, sugar, saturated fat, sodium',
+  },
+  ingredients: {
+    name: 'List of Ingredients',
+    rule: 'FSS (L&D) Reg. 2020',
+    authority: 'Food Safety and Standards Authority of India',
+    description: 'Ingredients declared in descending order of incoming weight/composition',
+  },
+};
+
+function resolveDeclarationInfo(d, idx) {
+  if (typeof d === 'string') {
+    const key = d.toLowerCase().replace(/[\s-]+/g, '_');
+    const spec = STATUTORY_DECLARATION_SPECS[key];
+    return {
+      title: spec?.name || d,
+      rule: spec?.rule || 'Rule 6(1) PCR',
+      description: spec?.description || 'Mandatory statutory package marking',
+      extractedValue: 'Verified on package',
+      isCompliant: true,
+      fontSize: null,
+    };
+  }
+
+  const rawKey = (
+    d.field_name ||
+    d.fieldName ||
+    d.field ||
+    d.name ||
+    d.key ||
+    d.type ||
+    `declaration_${idx + 1}`
+  ).toString();
+
+  const normalizedKey = rawKey.toLowerCase().replace(/[\s-]+/g, '_');
+  const spec = STATUTORY_DECLARATION_SPECS[normalizedKey];
+
+  // Humanize unknown keys (e.g., barcode_type -> Barcode Type)
+  const humanizedKey = rawKey
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
+  const title = spec?.name || humanizedKey;
+  const rule = d.rule_code || d.ruleCode || spec?.rule || 'Rule 6(1) PCR';
+  const description = spec?.description || 'Statutory declaration evaluated on packaging';
+
+  // Value resolution
+  const extractedValue =
+    d.extracted_text ||
+    d.extractedText ||
+    d.parsed_value ||
+    d.parsedValue ||
+    d.value ||
+    d.detected ||
+    d.detected_text ||
+    (d.confidence ? `Detected (Confidence: ${Math.round(d.confidence * 100)}%)` : 'Present and Verified');
+
+  const isCompliant = d.status !== 'FAIL' && d.status !== 'NON_COMPLIANT' && !d.is_violation;
+
+  return {
+    title,
+    rule,
+    description,
+    extractedValue: safeString(extractedValue),
+    isCompliant,
+    fontSize: d.font_size_mm_est ? `${d.font_size_mm_est} mm` : null,
+  };
+}
+
 function ReportModalContent({ inspection, onClose }) {
   if (!inspection) return null;
 
@@ -64,6 +301,22 @@ function ReportModalContent({ inspection, onClose }) {
         timeStyle: 'medium',
       })
     : new Date().toLocaleString('en-IN');
+
+  const productName = safeString(
+    inspection.productName ||
+    inspection.product_name ||
+    inspection.product?.brandName ||
+    inspection.product?.commodityName ||
+    inspection.commodityName ||
+    (declarations.find(d => (d.field_name || d.field || d.name) === 'commodity_name' || (d.field_name || d.field || d.name) === 'product_name')?.extracted_text) ||
+    'Pre-Packaged Consumer Commodity'
+  );
+
+  const category = safeString(
+    inspection.category ||
+    inspection.product?.category ||
+    'General Pre-Packaged Commodity'
+  );
 
   const evidenceImage = inspection.annotatedImageUrl || inspection.annotatedImagePath || inspection.imageUrl;
   const originalImage = inspection.imageUrl;
@@ -203,9 +456,14 @@ function ReportModalContent({ inspection, onClose }) {
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-700">
                   Department of Consumer Affairs • Legal Metrology Division
                 </p>
-                <p className="text-[11px] text-slate-600">
+                <p className="text-[11px] text-slate-600 mt-0.5">
                   Statutory Certificate under The Legal Metrology (Packaged Commodities) Rules, 2011
                 </p>
+                <div className="mt-1 inline-flex items-center gap-2 text-xs font-medium text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                  <span>Product: <strong className="text-emerald-950">{productName}</strong></span>
+                  <span>•</span>
+                  <span>Category: <strong className="text-slate-800">{category}</strong></span>
+                </div>
               </div>
             </div>
 
@@ -248,21 +506,35 @@ function ReportModalContent({ inspection, onClose }) {
 
           {/* Inspection Metadata Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+            <div className="col-span-2 sm:col-span-2">
+              <span className="text-slate-500 block uppercase font-medium text-[10px]">Product / Commodity Name</span>
+              <span className="font-bold text-slate-950 text-sm block truncate" title={productName}>
+                {productName}
+              </span>
+            </div>
+            <div className="col-span-2 sm:col-span-2">
+              <span className="text-slate-500 block uppercase font-medium text-[10px]">Product Category</span>
+              <span className="font-semibold text-emerald-800 bg-emerald-100/70 px-2 py-0.5 rounded border border-emerald-200 inline-block uppercase mt-0.5">
+                {category}
+              </span>
+            </div>
             <div>
-              <span className="text-slate-500 block uppercase font-medium">Scan ID</span>
+              <span className="text-slate-500 block uppercase font-medium text-[10px]">Inspection Scan ID</span>
               <span className="font-mono font-semibold text-slate-800 break-all">{safeString(inspection.id)}</span>
             </div>
             <div>
-              <span className="text-slate-500 block uppercase font-medium">Inspecting Officer</span>
+              <span className="text-slate-500 block uppercase font-medium text-[10px]">Inspecting Officer</span>
               <span className="font-semibold text-slate-800">{safeString(inspection.inspector?.fullName || inspection.inspector?.email, 'Officer Verma (Field Inspector)')}</span>
             </div>
             <div>
-              <span className="text-slate-500 block uppercase font-medium">Jurisdiction</span>
+              <span className="text-slate-500 block uppercase font-medium text-[10px]">Jurisdiction / Unit</span>
               <span className="font-semibold text-slate-800">{safeString(inspection.inspector?.district, 'Central Enforcement Unit')}</span>
             </div>
             <div>
-              <span className="text-slate-500 block uppercase font-medium">Commodity Category</span>
-              <span className="font-semibold text-slate-800 uppercase">{safeString(inspection.category, 'General Packaged Commodity')}</span>
+              <span className="text-slate-500 block uppercase font-medium text-[10px]">Statutory Assessment</span>
+              <span className={`font-bold ${isCompliant ? 'text-emerald-700' : 'text-rose-700'}`}>
+                {isCompliant ? '✓ All PCR Marks Verified' : `⚠ ${violations.length} Violation(s) Flagged`}
+              </span>
             </div>
           </div>
 
@@ -402,41 +674,84 @@ function ReportModalContent({ inspection, onClose }) {
             </div>
           )}
 
-          {/* Declarations Discovered (Rule 6(1)) */}
-          {declarations.length > 0 && (
+          {/* Mandatory Statutory Declarations Verification Checklist (Rule 6(1)) */}
+          {declarations.length > 0 ? (
             <div className="avoid-break space-y-2">
-              <h3 className="font-bold text-sm uppercase tracking-wide text-slate-900 flex items-center gap-2">
-                <span className="material-symbols-outlined text-slate-700 text-lg">fact_check</span>
-                Mandatory Declarations Verification Checklist (Rule 6(1))
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-sm uppercase tracking-wide text-slate-900 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-slate-700 text-lg">fact_check</span>
+                  Mandatory Declarations Verification Checklist (Legal Metrology PCR Rule 6(1))
+                </h3>
+                <span className="text-[11px] text-slate-500 font-mono">
+                  {declarations.length} statutory mark{declarations.length > 1 ? 's' : ''} evaluated
+                </span>
+              </div>
 
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead className="bg-slate-100 text-slate-700 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-200">
                     <tr>
-                      <th className="p-2.5">Statutory Requirement</th>
-                      <th className="p-2.5">Extracted Value / Text Grounding</th>
-                      <th className="p-2.5">Verification</th>
+                      <th className="p-2.5 w-[38%]">Statutory Declaration & Mandate</th>
+                      <th className="p-2.5 w-[42%]">Extracted Package Text / Grounding</th>
+                      <th className="p-2.5 w-[20%] text-right">Verification</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
-                    {declarations.map((d, idx) => (
-                      <tr key={idx}>
-                        <td className="p-2.5 font-medium text-slate-800 capitalize">
-                          {typeof d === 'string' ? d : safeString(d.field || d.name, `Declaration #${idx + 1}`)}
-                        </td>
-                        <td className="p-2.5 text-slate-700 font-mono text-[11px]">
-                          {typeof d === 'string' ? 'Verified on package' : safeString(d.value || d.detected || d.detected_text, 'Present')}
-                        </td>
-                        <td className="p-2.5 text-emerald-700 font-semibold flex items-center gap-1">
-                          <span className="material-symbols-outlined text-sm text-emerald-600">check_circle</span>
-                          Compliant
-                        </td>
-                      </tr>
-                    ))}
+                    {declarations.map((d, idx) => {
+                      const decl = resolveDeclarationInfo(d, idx);
+                      return (
+                        <tr key={idx} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="p-2.5 align-top">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-900">{decl.title}</span>
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                                {decl.rule}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                              {decl.description}
+                            </div>
+                          </td>
+                          <td className="p-2.5 align-top">
+                            <div className="font-mono text-[11px] text-slate-800 bg-slate-50 p-1.5 rounded border border-slate-200 break-words">
+                              {decl.extractedValue}
+                            </div>
+                            {decl.fontSize && (
+                              <div className="text-[10px] text-emerald-800 font-mono mt-0.5">
+                                Font Size: <strong>{decl.fontSize}</strong> (Rule 12 Standard)
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-2.5 align-top text-right">
+                            {decl.isCompliant ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold text-[11px]">
+                                <span className="material-symbols-outlined text-sm text-emerald-600">check_circle</span>
+                                Conforming
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-rose-50 border border-rose-200 text-rose-800 font-semibold text-[11px]">
+                                <span className="material-symbols-outlined text-sm text-rose-600">error</span>
+                                Non-Compliant
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
+            </div>
+          ) : (
+            <div className="avoid-break space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+              <h3 className="font-bold text-sm uppercase tracking-wide text-slate-900 flex items-center gap-2">
+                <span className="material-symbols-outlined text-slate-700 text-lg">fact_check</span>
+                Mandatory Declarations Assessment
+              </h3>
+              <p className="text-slate-600">
+                Packaging declarations were evaluated against Legal Metrology (Packaged Commodities) Rules, 2011 Rule 6(1) standards.
+                {violations.length === 0 ? ' No statutory discrepancies were identified.' : ` ${violations.length} discrepancy notice item(s) recorded above.`}
+              </p>
             </div>
           )}
 
@@ -500,3 +815,5 @@ export default function InspectionReportModal(props) {
     </ReportErrorBoundary>
   );
 }
+
+export { STATUTORY_DECLARATION_SPECS, resolveDeclarationInfo };

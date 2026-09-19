@@ -471,12 +471,14 @@ async function getScanById(req, reply) {
       where: { id: scanId },
       include: {
         violations: true,
+        product: true,
         inspector: {
           select: {
             id: true,
             fullName: true,
             email: true,
             role: true,
+            district: true,
           },
         },
       },
@@ -500,9 +502,30 @@ async function getScanById(req, reply) {
       delete ocrOutput.annotated_image;
     }
 
+    // Determine product name and category
+    const decls = Array.isArray(inspection.extractedDeclarations) ? inspection.extractedDeclarations : [];
+    const commodityDecl = decls.find((d) => d.field_name === "commodity_name" || d.field_name === "product_name")?.extracted_text;
+    const brandDecl = decls.find((d) => d.field_name === "brand_name" || d.field_name === "manufacturer" || d.field_name === "manufacturer_name")?.extracted_text;
+
+    const productName =
+      inspection.product?.brandName ||
+      inspection.product?.commodityName ||
+      commodityDecl ||
+      brandDecl ||
+      inspection.rawOcrOutput?.product_name ||
+      "Packaged Consumer Commodity";
+
+    const category =
+      inspection.product?.category ||
+      inspection.rawOcrOutput?.category ||
+      "General Pre-Packaged Commodity";
+
     return reply.code(200).send({
       scan_id: inspection.id,
       status: inspection.status,
+      product_name: productName,
+      category: category,
+      product: inspection.product || null,
       image_path: inspection.imagePath,
       annotated_image_path: inspection.annotatedImagePath || null,
       annotated_image_base64: inspection.rawOcrOutput?.annotated_image_base64 || null,

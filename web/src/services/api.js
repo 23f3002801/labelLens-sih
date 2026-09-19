@@ -185,7 +185,16 @@ function normalizeInspectionSummary(item = {}) {
 
   return {
     id: item.scan_id ?? item.id ?? null,
-    productName: item.productName || item.product_name || null,
+    productName:
+      item.product_name ||
+      item.productName ||
+      item.product?.brandName ||
+      item.product?.commodityName ||
+      "Packaged Consumer Commodity",
+    category:
+      item.category ||
+      item.product?.category ||
+      "General Pre-Packaged Commodity",
     status: normalizeStatus(item.status),
     imageUrl: item.image_path || item.image_url || item.imageUrl || null,
     annotatedImagePath: item.annotated_image_path || item.annotatedImagePath || null,
@@ -227,11 +236,33 @@ function normalizeInspectionDetail(detail = {}) {
           : `data:image/jpeg;base64,${detail.annotated_image_base64}`)
       : null);
 
+  const decls = Array.isArray(detail.extracted_declarations)
+    ? detail.extracted_declarations
+    : Array.isArray(detail.extractedDeclarations)
+      ? detail.extractedDeclarations
+      : [];
+
+  const productName =
+    detail.product_name ||
+    detail.productName ||
+    detail.product?.brandName ||
+    detail.product?.commodityName ||
+    decls.find((d) => d.field_name === "commodity_name" || d.field_name === "product_name")?.extracted_text ||
+    decls.find((d) => d.field_name === "brand_name" || d.field_name === "manufacturer" || d.field_name === "manufacturer_name")?.extracted_text ||
+    "Packaged Consumer Commodity";
+
+  const category =
+    detail.category ||
+    detail.product?.category ||
+    "General Pre-Packaged Commodity";
+
   return {
     ...normalizeInspectionSummary(detail),
+    productName,
+    category,
     overallResult: detail.overall_result ?? detail.overallResult ?? null,
     ocrResult: detail.ocr_result ?? detail.ocrResult ?? null,
-    extractedDeclarations: detail.extracted_declarations ?? detail.extractedDeclarations ?? [],
+    extractedDeclarations: decls,
     annotatedImageBase64: detail.annotated_image_base64 ?? detail.annotatedImageBase64 ?? null,
     annotatedImagePath: detail.annotated_image_path ?? detail.annotatedImagePath ?? null,
     annotatedImageUrl,
