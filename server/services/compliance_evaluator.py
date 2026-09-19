@@ -302,7 +302,7 @@ class ComplianceEvaluator:
         # Build dynamic matchers for all rules present in active ruleset
         standard_map = {
             "mrp": (self._is_mrp, lambda b: self._eval_mrp(b, ocr_result, doc_norm)),
-            "net_quantity": (self._is_net_quantity, lambda b: self._eval_net_quantity(b, img_height)),
+            "net_quantity": (self._is_net_quantity, lambda b: self._eval_net_quantity(b, img_height, doc_norm)),
             "manufacture_date": (self._is_mfg_date, lambda b: self._eval_mfg_date(b, img_height)),
             "consumer_care": (self._is_consumer_care, lambda b: self._eval_consumer_care(b, img_height)),
             "manufacturer_details": (self._is_manufacturer_details, lambda b: self._eval_manufacturer_details(b, img_height)),
@@ -788,10 +788,11 @@ class ComplianceEvaluator:
         )
         return decl, viols
 
-    def _eval_net_quantity(self, block: TextBlock, img_height: int) -> tuple[DeclarationFound, List[ViolationDetail]]:
+    def _eval_net_quantity(self, block: TextBlock, img_height: int, doc_norm: Optional[str] = None) -> tuple[DeclarationFound, List[ViolationDetail]]:
         text = block.text
         t_upper = flatten_text(text)
         viols = []
+        citation_svc = get_citation_service()
 
         # Check for non-standard unit symbols prohibited under Rule 12 (e.g. gms, gm, g., Kgs, ltrs, mls, etc.)
         illegal_match = re.search(r'\b(GMS|GM|G\.|GM\.|GMS\.|KGS|KG\.|KILO|KILOS|LTR|LTRS|LTR\.|LIT|LITERS|LITRES|MLS|ML\.|M\.L\.|MTS|MTR|MTRS)\b', t_upper)
@@ -799,7 +800,6 @@ class ComplianceEvaluator:
 
         if illegal_match:
             illegal_sym = illegal_match.group(0)
-            citation_svc = get_citation_service()
             rule12_cit = citation_svc.get_citation("rule_12_metric_symbol")
             viols.append(ViolationDetail(
                 id=f"viol_net_qty_symbol_{block.id}",
@@ -811,6 +811,82 @@ class ComplianceEvaluator:
                 evidence_bbox=block.bbox,
                 citation=rule12_cit
             ))
+
+        # Check for multi-piece package declarations (e.g. 30 N x 5 g, 5 g x 30 N, 10 x 20 g)
+        # Under Rule 24 and Rule 2(kc) of Legal Metrology (Packaged Commodities) Rules, 2011:
+        # Every multi-piece package must declare the number of individual pieces, the quantity of each piece,
+        # AND the total net quantity of all individual pieces.
+        multi_match = re.search(
+            r'\b(\d+)\s*(?:N|U|UNITS?|PIECES?|PCS?|TABLETS?|SACHETS?|PACKS?|CAKES?|BARS?)?\s*(?:x|X|\*)\s*(\d+(?:\.\d+)?)\s*(g|kg|ml|l|gm|gms|g\.)\b',
+            t_upper,
+            re.IGNORECASE
+        )
+        count = None
+        unit_val = None
+        unit_sym = None
+
+        if multi_match:
+            count = int(multi_match.group(1))
+            unit_val = float(multi_match.group(2))
+            unit_sym = multi_match.group(3).lower()
+        else:
+            multi_match_rev = re.search(
+                r'\b(\d+(?:\.\d+)?)\s*(g|kg|ml|l|gm|gms|g\.)\s*(?:x|X|\*)\s*(\d+)\s*(?:N|U|UNITS?|PIECES?|PCS?|TABLETS?|SACHETS?|PACKS?|CAKES?|BARS?)?\b',
+                t_upper,
+                re.IGNORECASE
+            )
+            if multi_match_rev:
+                unit_val = float(multi_match_rev.group(1))
+                unit_sym = multi_match_rev.group(2).lower()
+                count = int(multi_match_rev.group(3))
+
+        if count and unit_val and unit_sym:
+            # Normalize unit sym to standard SI
+            norm_sym = "g" if unit_sym in ("g", "gm", "gms", "g.") else ("ml" if unit_sym in ("ml", "mls", "ml.") else unit_sym)
+            total_val = count * unit_val
+
+            target_totals = [
+                f"{int(total_val) if total_val.is_integer() else total_val}{norm_sym}",
+                f"{int(total_val) if total_val.is_integer() else total_val} {norm_sym}",
+            ]
+            if norm_sym == "g" and total_val >= 1000:
+                kg_val = total_val / 1000.0
+                target_totals.extend([
+                    f"{int(kg_val) if kg_val.is_integer() else kg_val}kg",
+                    f"{int(kg_val) if kg_val.is_integer() else kg_val} kg",
+                ])
+            elif norm_sym == "ml" and total_val >= 1000:
+                l_val = total_val / 1000.0
+                target_totals.extend([
+                    f"{int(l_val) if l_val.is_integer() else l_val}l",
+                    f"{int(l_val) if l_val.is_integer() else l_val} l",
+                ])
+
+            search_scope = (t_upper + " " + (doc_norm or "")).upper()
+            has_total = any(
+                re.search(rf'\b{re.escape(target.upper())}\b', search_scope)
+                for target in target_totals
+            ) or bool(re.search(rf'=\s*{int(total_val) if total_val.is_integer() else total_val}', search_scope))
+
+            if not has_total:
+                rule24_cit = citation_svc.get_citation("multi_piece_net_quantity") or citation_svc.get_citation("rule_24_multi_piece") or citation_svc.get_citation("net_quantity")
+                display_total = f"{int(total_val) if total_val.is_integer() else total_val} {norm_sym}"
+                viols.append(ViolationDetail(
+                    id=f"viol_multi_piece_total_{block.id}",
+                    rule_id="multi_piece_net_quantity",
+                    field_name=self.rule_map.get("net_quantity", {}).get("field_name", "Net Quantity (Multi-Piece Package)"),
+                    violation_type="missing_total_quantity",
+                    severity="MAJOR",
+                    description=(
+                        f"Multi-piece package declares individual units ('{block.text}') but omits the mandatory "
+                        f"Total Net Quantity ('{display_total}'). Rule 24 and Rule 2(kc) of Legal Metrology "
+                        "(Packaged Commodities) Rules, 2011 mandate that multi-piece packages must declare "
+                        "both individual pieces and the total net quantity on the package."
+                    ),
+                    evidence_bbox=block.bbox,
+                    citation=rule24_cit
+                ))
+                format_valid = False
 
         min_font = self._get_min_font_size("net_quantity", 1.0)
         font_size_mm = self._estimate_font_mm(block.size.estimated_font_size_px, img_height)

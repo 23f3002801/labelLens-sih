@@ -83,6 +83,18 @@ const STATUTORY_DECLARATION_SPECS = {
     authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
     description: 'Prescribed numerical count or measure standard',
   },
+  multi_piece_net_quantity: {
+    name: 'Multi-Piece Package Net Quantity',
+    rule: 'Rule 24 & Rule 2(kc)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Mandatory declaration of individual unit counts/weights AND total net quantity',
+  },
+  rule_24_multi_piece: {
+    name: 'Multi-Piece Package Total Net Quantity',
+    rule: 'Rule 24 & Rule 2(kc)',
+    authority: 'Legal Metrology (Packaged Commodities) Rules, 2011',
+    description: 'Total net weight of all combined individual units',
+  },
   manufacturer: {
     name: 'Manufacturer Name & Complete Address',
     rule: 'Rule 6(1)(a)',

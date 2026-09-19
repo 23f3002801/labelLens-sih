@@ -15,6 +15,22 @@
     "page_number": 3,
     "statutory_quote": "The net quantity, in terms of the standard unit of weight or measure, of the commodity contained in the package or where the commodity is packed or sold by number, the number or unit or piece or pair or set which represents the quantity shall be mentioned."
   },
+  "multi_piece_net_quantity": {
+    "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+    "rule_number": "Rule 24 & Rule 2(kc)",
+    "section_title": "Multi-Piece Package Mandatory Total Quantity Declaration",
+    "source_document": "G.S.R. 202(E) dated 07.03.2011",
+    "page_number": 15,
+    "statutory_quote": "Every multi-piece package shall bear on the outside of the package a declaration of: (a) the number of individual pieces of the commodity contained in such multi-piece package, (b) the quantity or number of each such individual piece, and (c) the total net quantity of all individual pieces contained in such package."
+  },
+  "rule_24_multi_piece": {
+    "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+    "rule_number": "Rule 24 & Rule 2(kc)",
+    "section_title": "Declarations with regard to Multi-Piece Packages",
+    "source_document": "G.S.R. 202(E) dated 07.03.2011",
+    "page_number": 15,
+    "statutory_quote": "Every multi-piece package shall bear on the outside of the package a declaration of the number of individual pieces, the quantity or number of each individual piece, and the total net quantity of all individual pieces contained in such package."
+  },
   "mrp": {
     "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
     "rule_number": "Rule 6(1)(e)",
