@@ -98,83 +98,16 @@
 
 /* Print Styles for Statutory Inspection Audit Certificates */
 @media print {
-  html, body {
-    width: 100% !important;
-    height: auto !important;
-    min-height: auto !important;
-    margin: 0 !important;
-    padding: 0 !important;
+  body {
     background: #ffffff !important;
     color: #0f172a !important;
-    overflow: visible !important;
   }
 
-  /* Prevent fixed positioning from duplicating content across pages */
-  .fixed,
-  .absolute {
-    position: static !important;
-  }
-
-  /* Reset modal backdrop */
-  .report-modal-backdrop {
-    position: static !important;
-    inset: auto !important;
-    background: transparent !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    overflow: visible !important;
-    display: block !important;
-    width: 100% !important;
-    height: auto !important;
-    max-height: none !important;
-    box-shadow: none !important;
-  }
-
-  /* Reset modal card container */
-  .report-modal-card {
-    position: static !important;
-    max-width: 100% !important;
-    width: 100% !important;
-    max-height: none !important;
-    height: auto !important;
-    box-shadow: none !important;
-    border: none !important;
-    border-radius: 0 !important;
-    overflow: visible !important;
-    display: block !important;
-    margin: 0 !important;
-    padding: 0 !important;
-  }
-
-  /* Hide background dashboard layout in print */
-  #root > *:not(.report-modal-backdrop) {
-    display: none !important;
-  }
-
-  /* Screen-only controls */
   .no-print,
   .no-print * {
     display: none !important;
     visibility: hidden !important;
     height: 0 !important;
-    margin: 0 !important;
-    padding: 0 !important;
-  }
-
-  /* Target report container */
-  #printable-report {
-    position: static !important;
-    display: block !important;
-    width: 100% !important;
-    height: auto !important;
-    max-height: none !important;
-    overflow: visible !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    background: #ffffff !important;
-    color: #0f172a !important;
-    box-shadow: none !important;
-    border: none !important;
   }
 
   @page {
@@ -187,4 +120,5 @@
     page-break-inside: avoid !important;
   }
 }
+
 

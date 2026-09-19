@@ -69,7 +69,89 @@ function ReportModalContent({ inspection, onClose }) {
   const originalImage = inspection.imageUrl;
 
   const handlePrint = () => {
-    window.print();
+    const reportElem = document.getElementById('printable-report');
+    if (!reportElem) {
+      window.print();
+      return;
+    }
+
+    // Create or reuse hidden iframe
+    let printFrame = document.getElementById('almac-print-frame');
+    if (printFrame) {
+      printFrame.remove();
+    }
+    
+    printFrame = document.createElement('iframe');
+    printFrame.id = 'almac-print-frame';
+    printFrame.style.position = 'fixed';
+    printFrame.style.right = '0';
+    printFrame.style.bottom = '0';
+    printFrame.style.width = '0';
+    printFrame.style.height = '0';
+    printFrame.style.border = '0';
+    document.body.appendChild(printFrame);
+
+    const frameDoc = printFrame.contentWindow.document;
+    frameDoc.open();
+    frameDoc.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>ALMAC_Statutory_Compliance_Report_${String(inspection.id || 'scan').slice(0, 8)}</title>
+          <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+          <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0">
+          <script src="https://cdn.tailwindcss.com"></script>
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 10mm;
+            }
+            * {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            body {
+              margin: 0;
+              padding: 16px;
+              font-family: 'Inter', sans-serif;
+              background-color: #ffffff !important;
+              color: #0f172a !important;
+            }
+            .avoid-break {
+              break-inside: avoid !important;
+              page-break-inside: avoid !important;
+            }
+            img {
+              max-width: 100%;
+              height: auto;
+              object-fit: contain;
+            }
+            table {
+              border-collapse: collapse;
+              width: 100%;
+            }
+          </style>
+        </head>
+        <body class="bg-white text-slate-900">
+          <div class="space-y-6">
+            ${reportElem.innerHTML}
+          </div>
+        </body>
+      </html>
+    `);
+    frameDoc.close();
+
+    // Give iframe time to parse Tailwind and load images before printing
+    setTimeout(() => {
+      try {
+        printFrame.contentWindow.focus();
+        printFrame.contentWindow.print();
+      } catch (e) {
+        console.error('Iframe print error, falling back to window.print():', e);
+        window.print();
+      }
+    }, 450);
   };
 
   return (
