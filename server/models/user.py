@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, String, DateTime, Enum
 import enum
 from database import Base
@@ -20,4 +20,4 @@ class User(Base):
     district = Column(String(100), nullable=True, index=True)
     state = Column(String(100), nullable=True, index=True)
     badge_number = Column(String(50), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)

@@ -1,0 +1,66 @@
+{
+  "synthetic_benchmark": [
+    {
+      "name": "standard_packaged_food",
+      "expected_declarations": [
+        "MRP Rs 250.00 (INCL. OF ALL TAXES)",
+        "NET QTY: 1 kg",
+        "MFG DATE: 05/2026",
+        "Mfd by: Pure Spices India Pvt Ltd"
+      ],
+      "required_keywords": ["MRP", "NET QTY", "MFG DATE", "Mfd by"],
+      "min_blocks": 4,
+      "min_confidence": 0.80
+    },
+    {
+      "name": "cosmetic_lotion_label",
+      "expected_declarations": [
+        "MRP Rs. 399.00 (INCL. OF ALL TAXES)",
+        "Net Vol: 200 ml",
+        "Mfg Date: 01/2025",
+        "Consumer Care: care@skinglow.com",
+        "Batch No: SG2025A"
+      ],
+      "required_keywords": ["MRP", "Net Vol", "Mfg Date", "Batch No"],
+      "min_blocks": 4,
+      "min_confidence": 0.80
+    }
+  ],
+  "dataset_samples": [
+    {
+      "image_path": "dataset/train/13.png",
+      "required_keywords": ["NUTRITIONAL", "PEPSICO", "MRP", "BEST BEFORE"],
+      "min_blocks": 5
+    },
+    {
+      "image_path": "dataset/train/2.png",
+      "required_keywords": ["NESTLE", "MRP", "NET WEIGHT", "BEST BEFORE"],
+      "min_blocks": 5
+    },
+    {
+      "image_path": "dataset/train/24.png",
+      "required_keywords": ["NESTLE", "MRP", "NET WEIGHT", "BEST BEFORE"],
+      "min_blocks": 5
+    },
+    {
+      "image_path": "dataset/train/62.PNG",
+      "required_keywords": ["BUMBLE BEE", "TUNA", "NUTRITION FACTS", "CALORIES"],
+      "min_blocks": 5
+    },
+    {
+      "image_path": "dataset/train/66.PNG",
+      "required_keywords": ["FAJITA", "NUTRITION FACTS", "CALORIES", "BEST BY"],
+      "min_blocks": 5
+    },
+    {
+      "image_path": "dataset/train/89.PNG",
+      "required_keywords": ["JUST CORN", "NUTRITION FACTS", "CALORIES", "INGREDIENTS"],
+      "min_blocks": 5
+    },
+    {
+      "image_path": "dataset/train/93.PNG",
+      "required_keywords": ["BERNARD", "COOKIE MIX", "NUTRITION FACTS", "NET WT"],
+      "min_blocks": 5
+    }
+  ]
+}

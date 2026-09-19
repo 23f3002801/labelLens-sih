@@ -1,6 +1,8 @@
 // Base URL: relative by default so the Vite dev proxy (and any reverse proxy in
 // production) handles the host. Override with VITE_API_URL when needed.
-const API_BASE_URL = import.meta.env?.VITE_API_URL || "/api/v1";
+const API_BASE_URL = import.meta.env?.VITE_API_URL || "http://localhost:3000/api/v1";
+const NODE_API_BASE = API_BASE_URL;
+const FASTAPI_BASE = import.meta.env?.VITE_FASTAPI_URL || "http://127.0.0.1:8000/api/v1";
 
 // Cap every request so a hung server/proxy can never leave a background
 // revalidation pending forever (which would freeze the cache on stale data).
@@ -8,10 +10,6 @@ const REQUEST_TIMEOUT_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // In-memory cache for GET responses with stale-while-revalidate semantics.
-// Cached data is served instantly even after its TTL passes (marked stale)
-// while a single background request refreshes it — pages never flash a
-// loading skeleton just because the TTL expired. Pages can also subscribe to
-// a key to receive refreshed data while they are mounted.
 // ---------------------------------------------------------------------------
 const CACHE_TTL = {
   me: 60_000, // /auth/me — user profile rarely changes
@@ -144,8 +142,6 @@ async function request(path, { method = "GET", body, formData, auth = true } = {
     throw new Error("Cannot reach the server. Make sure the backend is running.");
   }
 
-  // Response body may be empty or non-JSON (proxies, gateways, crashes) —
-  // never assume .json() succeeds.
   let data = null;
   const raw = await response.text();
   if (raw) {
@@ -174,9 +170,7 @@ async function request(path, { method = "GET", body, formData, auth = true } = {
 }
 
 // ---------------------------------------------------------------------------
-// Field normalization: the backend speaks snake_case (scan_id, image_path,
-// created_at, violations_count, COMPLIANT...). Normalize once here so pages
-// never render `undefined` / `Invalid Date` / wrong status badges.
+// Field normalization
 // ---------------------------------------------------------------------------
 function normalizeStatus(status) {
   const normalized = String(status || "").toLowerCase();
@@ -184,12 +178,32 @@ function normalizeStatus(status) {
 }
 
 function normalizeInspectionSummary(item = {}) {
+  const annotatedImageUrl =
+    item.annotated_image_path ||
+    item.annotatedImagePath ||
+    (item.annotated_image_base64
+      ? (item.annotated_image_base64.startsWith("data:")
+          ? item.annotated_image_base64
+          : `data:image/jpeg;base64,${item.annotated_image_base64}`)
+      : null);
+
   return {
     id: item.scan_id ?? item.id ?? null,
-    productName: item.productName || item.product_name || null,
+    productName:
+      item.product_name ||
+      item.productName ||
+      item.product?.brandName ||
+      item.product?.commodityName ||
+      "Packaged Consumer Commodity",
+    category:
+      item.category ||
+      item.product?.category ||
+      "General Pre-Packaged Commodity",
     status: normalizeStatus(item.status),
-    imageUrl: item.image_path || item.image_url || null,
-    complianceScore: item.compliance_score ?? 0,
+    imageUrl: item.image_path || item.image_url || item.imageUrl || null,
+    annotatedImagePath: item.annotated_image_path || item.annotatedImagePath || null,
+    annotatedImageUrl,
+    complianceScore: item.compliance_score ?? item.complianceScore ?? 0,
     violationsCount:
       item.violations_count ??
       (Array.isArray(item.violations) ? item.violations.length : item.violations ?? 0),
@@ -208,15 +222,54 @@ function normalizeInspectionDetail(detail = {}) {
               severity: v.severity ?? null,
               title: v.title ?? v.message ?? "Violation",
               description: v.description ?? "",
+              evidenceBbox: v.evidence_bbox ?? v.evidenceBbox ?? null,
+              citation: v.citation ?? null,
+              detectedOnPackage: v.detected_on_package ?? v.detectedOnPackage ?? null,
+              expectedOnPackage: v.expected_on_package ?? v.expectedOnPackage ?? null,
+              packageElement: v.package_element ?? v.packageElement ?? null,
             }
       )
     : [];
 
+  const annotatedImageUrl =
+    detail.annotated_image_path ||
+    detail.annotatedImagePath ||
+    (detail.annotated_image_base64
+      ? (detail.annotated_image_base64.startsWith("data:")
+          ? detail.annotated_image_base64
+          : `data:image/jpeg;base64,${detail.annotated_image_base64}`)
+      : null);
+
+  const decls = Array.isArray(detail.extracted_declarations)
+    ? detail.extracted_declarations
+    : Array.isArray(detail.extractedDeclarations)
+      ? detail.extractedDeclarations
+      : [];
+
+  const productName =
+    detail.product_name ||
+    detail.productName ||
+    detail.product?.brandName ||
+    detail.product?.commodityName ||
+    decls.find((d) => d.field_name === "commodity_name" || d.field_name === "product_name")?.extracted_text ||
+    decls.find((d) => d.field_name === "brand_name" || d.field_name === "manufacturer" || d.field_name === "manufacturer_name")?.extracted_text ||
+    "Packaged Consumer Commodity";
+
+  const category =
+    detail.category ||
+    detail.product?.category ||
+    "General Pre-Packaged Commodity";
+
   return {
     ...normalizeInspectionSummary(detail),
-    overallResult: detail.overall_result ?? null,
-    ocrResult: detail.ocr_result ?? null,
-    extractedDeclarations: detail.extracted_declarations ?? [],
+    productName,
+    category,
+    overallResult: detail.overall_result ?? detail.overallResult ?? null,
+    ocrResult: detail.ocr_result ?? detail.ocrResult ?? null,
+    extractedDeclarations: decls,
+    annotatedImageBase64: detail.annotated_image_base64 ?? detail.annotatedImageBase64 ?? null,
+    annotatedImagePath: detail.annotated_image_path ?? detail.annotatedImagePath ?? null,
+    annotatedImageUrl,
     inspector: detail.inspector ?? null,
     violations,
   };
@@ -229,7 +282,8 @@ const api = {
   removeToken: () => {
     localStorage.removeItem("almac_token");
     cache.clear();
-  },  isAuthenticated: () => !!localStorage.getItem("almac_token"),
+  },
+  isAuthenticated: () => !!localStorage.getItem("almac_token"),
   getUser: () => {
     const user = localStorage.getItem("almac_user");
     return user ? JSON.parse(user) : null;
@@ -279,8 +333,7 @@ const api = {
   },
 
   // --- scans ---------------------------------------------------------------
-  // Upload + scan a packaging image. Uses XHR so callers get real upload
-  // progress via onProgress(0-100); the response is the scan result.
+  // Upload + scan a packaging image with progress
   uploadImage: (file, onProgress) =>
     new Promise((resolve, reject) => {
       const formData = new FormData();
@@ -319,6 +372,83 @@ const api = {
         reject(new Error("Cannot reach the server. Make sure the backend is running."));
       xhr.send(formData);
     }),
+
+  // Dual-path category-scoped upload & scan with FastAPI fallback
+  uploadAndScan: async (file, category = "general") => {
+    const token = api.getToken();
+    const formData = new FormData();
+    formData.append("file", file);
+
+    // 1. Primary: Fastify server orchestration
+    try {
+      const headers = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const response = await fetch(
+        `${NODE_API_BASE}/uploads/image?category=${encodeURIComponent(category)}`,
+        {
+          method: "POST",
+          headers,
+          body: formData,
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        cacheScanResult(data);
+        return {
+          source: "node-server",
+          ...data,
+        };
+      }
+    } catch (nodeErr) {
+      console.warn("Node server unavailable, falling back to direct FastAPI compute:", nodeErr);
+    }
+
+    // 2. Fallback: Direct FastAPI compute engine
+    const directForm = new FormData();
+    directForm.append("file", file);
+    const directRes = await fetch(
+      `${FASTAPI_BASE}/compliance/evaluate-image?enhance=true&category=${encodeURIComponent(category)}`,
+      {
+        method: "POST",
+        body: directForm,
+      }
+    );
+
+    if (!directRes.ok) {
+      const errText = await directRes.text();
+      throw new Error(`Compliance scan failed: ${errText || directRes.statusText}`);
+    }
+
+    const fastApiData = await directRes.json();
+    return {
+      source: "fastapi-direct",
+      scan_id: `direct_${Date.now()}`,
+      status: fastApiData.overall_result === "PASS" ? "COMPLIANT" : "NON_COMPLIANT",
+      image_path: null,
+      created_at: new Date().toISOString(),
+      compliance_score: fastApiData.compliance_score,
+      overall_result: fastApiData.overall_result,
+      category,
+      annotated_image_base64: fastApiData.annotated_image_base64,
+      extracted_declarations: fastApiData.summary?.what_was_found || [],
+      missing_declarations: fastApiData.summary?.whats_missing || [],
+      violations: (fastApiData.summary?.whats_wrong || []).map((v) => ({
+        id: v.id,
+        rule_code: v.rule_id,
+        severity: v.severity,
+        title: `${v.field_name} - ${(v.violation_type || "Violation").toUpperCase()}`,
+        description: v.description,
+        evidence_bbox: v.evidence_bbox,
+        citation: v.citation,
+        detected_on_package: v.detected_on_package,
+        expected_on_package: v.expected_on_package,
+        package_element: v.package_element,
+      })),
+    };
+  },
 
   uploadVideo: (file, onProgress) =>
     new Promise((resolve, reject) => {
@@ -398,9 +528,6 @@ const api = {
     const key = `/inspections?page=${page}&limit=${limit}`;
     return swrGet(key, CACHE_TTL.inspections, async () => {
       const data = await request(`/inspections?page=${page}&limit=${limit}`);
-      // Backend: { page, limit, total, total_pages, items: [...] }. Stay
-      // defensive in case it ever returns a bare array or a differently shaped
-      // payload instead of crashing.
       const rawItems = Array.isArray(data)
         ? data
         : Array.isArray(data?.items)
@@ -431,6 +558,57 @@ const api = {
   peekInspection: (scanId) => cachePeek(`/uploads/${scanId}`),
 
   subscribeInspection: (scanId, cb) => subscribe(`/uploads/${scanId}`, cb),
+
+  getScanById: async (scanId) => {
+    const token = api.getToken();
+    const headers = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    const response = await fetch(`${NODE_API_BASE}/uploads/${scanId}`, { headers });
+    if (!response.ok) {
+      throw new Error(`Failed to retrieve inspection ${scanId}`);
+    }
+    return await response.json();
+  },
+
+  // Statutory citations
+  getCitations: async () => {
+    try {
+      const response = await fetch(`${NODE_API_BASE}/compliance/citations`);
+      if (response.ok) return await response.json();
+    } catch {
+      // Fallback direct
+    }
+    const directRes = await fetch(`${FASTAPI_BASE}/compliance/citations`);
+    if (!directRes.ok) throw new Error("Failed to fetch statutory citations");
+    return await directRes.json();
+  },
+
+  searchCitations: async (query, topK = 3) => {
+    const q = encodeURIComponent(query);
+    try {
+      const response = await fetch(`${NODE_API_BASE}/compliance/citations-search?q=${q}&top_k=${topK}`);
+      if (response.ok) return await response.json();
+    } catch {
+      // Fallback direct
+    }
+    const directRes = await fetch(`${FASTAPI_BASE}/compliance/citations-search?q=${q}&top_k=${topK}`);
+    if (!directRes.ok) throw new Error("Failed to search statutory corpus");
+    return await directRes.json();
+  },
+
+  getActiveRules: async (category = "general") => {
+    const cat = encodeURIComponent(category);
+    try {
+      const response = await fetch(`${NODE_API_BASE}/compliance/rules?category=${cat}`);
+      if (response.ok) return await response.json();
+    } catch {
+      // Fallback direct
+    }
+    const directRes = await fetch(`${FASTAPI_BASE}/compliance/rules?category=${cat}`);
+    if (!directRes.ok) throw new Error("Failed to fetch active compliance rules");
+    return await directRes.json();
+  },
 };
 
 export default api;

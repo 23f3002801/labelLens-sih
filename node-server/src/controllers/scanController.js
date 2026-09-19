@@ -4,7 +4,9 @@ import { uploadBuffer } from "../services/cloudinaryService.js";
 import {
   runOcr,
   evaluateOcrCompliance,
-  unwrapVideo,
+  getCitations,
+  searchCitations,
+  getRules,
 } from "../services/fastapiService.js";
 import * as scanCache from "../utils/scanCache.js";
 
@@ -72,7 +74,7 @@ const ALLOWED_VIDEO_MIMES = [
  * 5. Persist Inspection and Violation records in PostgreSQL via Prisma.
  * 6. Return comprehensive response.
  */
-async function processPhotoScan({ inspectionId, imageBuffer, filename, log }) {
+async function processPhotoScan({ inspectionId, imageBuffer, filename, category = "general", log }) {
   try {
 
     // Identical images previously scanned (within the cache TTL) skip the
@@ -103,14 +105,13 @@ async function processPhotoScan({ inspectionId, imageBuffer, filename, log }) {
       }
 
       cloudinaryResult = upload;
-      complianceResult = await evaluateOcrCompliance(ocr);
+      complianceResult = await evaluateOcrCompliance(ocr, category);
       const { annotatedBase64, ocrSlim } = extractAnnotatedImage(ocr);
       annotatedUrl = await hostAnnotatedImage(annotatedBase64, filename, log);
       ocrResult = ocrSlim;
 
       scanCache.set(imageHash, { cloudinaryResult, ocrResult, complianceResult, annotatedUrl });
     }
-
     const overallStatus =
       complianceResult.overall_result === "PASS"
         ? "COMPLIANT"
@@ -133,14 +134,18 @@ async function processPhotoScan({ inspectionId, imageBuffer, filename, log }) {
       data: {
         imagePath: cloudinaryResult.secure_url,
         annotatedImagePath: annotatedUrl,
-        rawOcrOutput: ocrResult,
+        rawOcrOutput: {
+          ...ocrResult,
+          category,
+        },
         extractedDeclarations,
         complianceScore: complianceResult.compliance_score || 0.0,
         status: overallStatus,
       },
     });
 
-    // Create Violation records
+    // Create Violation records — include enriched citation & package discrepancy
+    // fields so they are persisted and available when fetching scans by ID later.
     const violationsData = (complianceResult.summary?.whats_wrong || []).map(
       (v) => ({
         inspectionId: inspection.id,
@@ -149,6 +154,10 @@ async function processPhotoScan({ inspectionId, imageBuffer, filename, log }) {
         title: `${v.field_name || "Declaration"} - ${(v.violation_type || "VIOLATION").toUpperCase()}`,
         description: v.description || "",
         evidenceBbox: v.evidence_bbox || null,
+        citation: v.citation || null,
+        detectedOnPackage: v.detected_on_package || null,
+        expectedOnPackage: v.expected_on_package || null,
+        packageElement: v.package_element || null,
       })
     );
 
@@ -185,17 +194,18 @@ async function handlePhotoScan(req, reply) {
     }
 
     const filename = data.filename || "label.jpg";
+    const category = req.query?.category || data.fields?.category?.value || "general";
     const inspection = await prisma.inspection.create({
       data: {
         inspectorId: req.user?.id || null,
         status: "PROCESSING",
-        rawOcrOutput: { source: "image", filename },
+        rawOcrOutput: { source: "image", filename, category },
       },
     });
 
     // Deliberately do not await: the client can move to Inspections as soon as
     // its upload has finished, while OCR and compliance run in the background.
-    void processPhotoScan({ inspectionId: inspection.id, imageBuffer, filename, log: req.log });
+    void processPhotoScan({ inspectionId: inspection.id, imageBuffer, filename, category, log: req.log });
     return reply.code(202).send({
       scan_id: inspection.id,
       status: inspection.status,
@@ -236,6 +246,7 @@ async function processVideoScanLegacy(req, reply) {
 
     const filename = data.filename || "video.mp4";
     const inspectorId = req.user?.id || null;
+    const category = req.query?.category || data.fields?.category?.value || "general";
 
     // Step 1: Forward video to FastAPI stateless unwrap
     const unwrapResponse = await unwrapVideo(videoBuffer, filename);
@@ -269,7 +280,7 @@ async function processVideoScanLegacy(req, reply) {
     // Step 3: Run OCR and compliance evaluation on best frame (first unwrapped face)
     const primaryFrame = uploadedFrames[0];
     const fullOcrResult = await runOcr(primaryFrame.buffer, primaryFrame.filename);
-    const complianceResult = await evaluateOcrCompliance(fullOcrResult);
+    const complianceResult = await evaluateOcrCompliance(fullOcrResult, category);
     const { annotatedBase64, ocrSlim } = extractAnnotatedImage(fullOcrResult);
     const annotatedUrl = await hostAnnotatedImage(
       annotatedBase64,
@@ -323,6 +334,10 @@ async function processVideoScanLegacy(req, reply) {
         title: `${v.field_name || "Declaration"} - ${(v.violation_type || "VIOLATION").toUpperCase()}`,
         description: v.description || "",
         evidenceBbox: v.evidence_bbox || null,
+        citation: v.citation || null,
+        detectedOnPackage: v.detected_on_package || null,
+        expectedOnPackage: v.expected_on_package || null,
+        packageElement: v.package_element || null,
       })
     );
 
@@ -336,10 +351,24 @@ async function processVideoScanLegacy(req, reply) {
       where: { inspectionId: inspection.id },
     });
 
+    // Bug #3 fix: build extraMap for video scan just like photo scan does
+    const videoExtraMap = {};
+    (complianceResult.summary?.whats_wrong || []).forEach((w) => {
+      const payload = {
+        citation: w.citation || null,
+        detected_on_package: w.detected_on_package || null,
+        expected_on_package: w.expected_on_package || null,
+        package_element: w.package_element || null,
+      };
+      if (w.rule_id) videoExtraMap[w.rule_id] = payload;
+      if (w.field_name && !videoExtraMap[w.field_name]) videoExtraMap[w.field_name] = payload;
+    });
+
     return reply.code(200).send({
       scan_id: inspection.id,
       status: inspection.status,
       image_path: inspection.imagePath,
+      annotated_image_base64: ocrResult.annotated_image_base64 || complianceResult.annotated_image_base64 || null,
       frames_count: uploadedFrames.length,
       annotated_image_path: annotatedUrl,
       frames: uploadedFrames.map((f) => ({
@@ -351,14 +380,22 @@ async function processVideoScanLegacy(req, reply) {
       overall_result: complianceResult.overall_result,
       created_at: inspection.createdAt,
       extracted_declarations: inspection.extractedDeclarations,
-      violations: violations.map((v) => ({
-        id: v.id,
-        rule_code: v.ruleCode,
-        severity: v.severity,
-        title: v.title,
-        description: v.description,
-        evidence_bbox: v.evidenceBbox,
-      })),
+      violations: violations.map((v) => {
+        const titleField = v.title?.split(" - ")[0];
+        const extra = videoExtraMap[v.ruleCode] || videoExtraMap[titleField] || {};
+        return {
+          id: v.id,
+          rule_code: v.ruleCode,
+          severity: v.severity,
+          title: v.title,
+          description: v.description,
+          evidence_bbox: v.evidenceBbox,
+          citation: extra.citation || null,
+          detected_on_package: extra.detected_on_package || null,
+          expected_on_package: extra.expected_on_package || null,
+          package_element: extra.package_element || null,
+        };
+      }),
     });
   } catch (error) {
     req.log.error(error);
@@ -486,12 +523,14 @@ async function getScanById(req, reply) {
       where: { id: scanId },
       include: {
         violations: true,
+        product: true,
         inspector: {
           select: {
             id: true,
             fullName: true,
             email: true,
             role: true,
+            district: true,
           },
         },
       },
@@ -515,11 +554,33 @@ async function getScanById(req, reply) {
       delete ocrOutput.annotated_image;
     }
 
+    // Determine product name and category
+    const decls = Array.isArray(inspection.extractedDeclarations) ? inspection.extractedDeclarations : [];
+    const commodityDecl = decls.find((d) => d.field_name === "commodity_name" || d.field_name === "product_name")?.extracted_text;
+    const brandDecl = decls.find((d) => d.field_name === "brand_name" || d.field_name === "manufacturer" || d.field_name === "manufacturer_name")?.extracted_text;
+
+    const productName =
+      inspection.product?.brandName ||
+      inspection.product?.commodityName ||
+      commodityDecl ||
+      brandDecl ||
+      inspection.rawOcrOutput?.product_name ||
+      "Packaged Consumer Commodity";
+
+    const category =
+      inspection.product?.category ||
+      inspection.rawOcrOutput?.category ||
+      "General Pre-Packaged Commodity";
+
     return reply.code(200).send({
       scan_id: inspection.id,
       status: inspection.status,
+      product_name: productName,
+      category: category,
+      product: inspection.product || null,
       image_path: inspection.imagePath,
       annotated_image_path: inspection.annotatedImagePath || null,
+      annotated_image_base64: inspection.rawOcrOutput?.annotated_image_base64 || null,
       created_at: inspection.createdAt,
       compliance_score: inspection.complianceScore,
       ocr_result: ocrOutput,
@@ -532,6 +593,10 @@ async function getScanById(req, reply) {
         title: v.title,
         description: v.description,
         evidence_bbox: v.evidenceBbox,
+        citation: v.citation || null,
+        detected_on_package: v.detectedOnPackage || null,
+        expected_on_package: v.expectedOnPackage || null,
+        package_element: v.packageElement || null,
       })),
     });
   } catch (error) {
@@ -601,10 +666,46 @@ async function listScans(req, reply) {
   }
 }
 
+async function getComplianceRules(req, reply) {
+  try {
+    const category = req.query?.category || "general";
+    const rules = await getRules(category);
+    return reply.code(200).send(rules);
+  } catch (error) {
+    req.log.error(error);
+    return reply.code(502).send({ error: "Failed to fetch rules from FastAPI compute engine", message: error.message });
+  }
+}
+
+async function getStatutoryCitations(req, reply) {
+  try {
+    const citations = await getCitations();
+    return reply.code(200).send(citations);
+  } catch (error) {
+    req.log.error(error);
+    return reply.code(502).send({ error: "Failed to fetch citations from FastAPI compute engine", message: error.message });
+  }
+}
+
+async function searchStatutoryCorpus(req, reply) {
+  try {
+    const query = req.query?.q || "";
+    const topK = parseInt(req.query?.top_k) || 3;
+    const results = await searchCitations(query, topK);
+    return reply.code(200).send({ query, total_results: results.length, results });
+  } catch (error) {
+    req.log.error(error);
+    return reply.code(502).send({ error: "Failed to search corpus on FastAPI compute engine", message: error.message });
+  }
+}
+
 export {
   handlePhotoScan,
   handleVideoScan,
   getScanById,
   listScans,
+  getComplianceRules,
+  getStatutoryCitations,
+  searchStatutoryCorpus,
   extractAnnotatedImage,
 };

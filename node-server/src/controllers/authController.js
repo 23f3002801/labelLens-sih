@@ -169,9 +169,39 @@ async function login(req, reply) {
 }
 
 async function getMe(req, reply) {
-  return reply.code(200).send({
-    user: req.user,
-  });
+  // Auth middleware only provides JWT fields (id, email, role, fullName).
+  // Profile endpoint needs the full user record from DB.
+  try {
+    const prisma = require("../config/db");
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        district: true,
+        state: true,
+        badgeNumber: true,
+        createdAt: true,
+      },
+    });
+
+    if (!user) {
+      return reply.code(404).send({
+        error: "Not Found",
+        message: "User account no longer exists",
+      });
+    }
+
+    return reply.code(200).send({ user });
+  } catch (error) {
+    req.log.error(error);
+    return reply.code(500).send({
+      error: "Internal Server Error",
+      message: "Failed to retrieve profile",
+    });
+  }
 }
 
 async function updateProfile(req, reply) {

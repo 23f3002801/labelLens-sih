@@ -149,10 +149,13 @@ export default function Inspections() {
                     <tr key={inspection.id} className="hover:bg-surface-container-low/50 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
                             <span className="material-symbols-outlined text-primary text-[20px]">package</span>
                           </div>
-                          <span className="font-medium text-on-surface">{inspection.productName || 'Unnamed Scan'}</span>
+                          <div>
+                            <span className="font-medium text-on-surface block">{inspection.productName || 'Packaged Commodity'}</span>
+                            <span className="text-xs text-on-surface-variant font-medium">{inspection.category || 'General Pre-Packaged Commodity'}</span>
+                          </div>
                         </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-on-surface-variant">

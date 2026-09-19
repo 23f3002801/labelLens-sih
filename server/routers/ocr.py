@@ -13,6 +13,7 @@ class Base64ScanRequest(BaseModel):
     enhance: bool = Field(default=False, description="Apply adaptive contrast enhancement before OCR")
     min_confidence: float = Field(default=0.3, ge=0.0, le=1.0, description="Minimum confidence threshold")
     include_annotated_image: bool = Field(default=False, description="Include base64 visualization overlay in response")
+    fallback: bool = Field(default=True, description="Enable multi-pipeline fallback for low contrast/faded labels")
 
 @router.post(
     "/scan",
@@ -24,7 +25,8 @@ async def scan_label_image(
     file: UploadFile = File(..., description="Label photo file (JPEG, PNG, WEBP, etc.)"),
     enhance: bool = Query(default=False, description="Apply contrast enhancement preprocessing"),
     min_confidence: float = Query(default=0.3, ge=0.0, le=1.0, description="Minimum OCR confidence threshold"),
-    include_annotated_image: bool = Query(default=False, description="Return base64 annotated image with bounding boxes")
+    include_annotated_image: bool = Query(default=False, description="Return base64 annotated image with bounding boxes"),
+    fallback: bool = Query(default=True, description="Enable multi-pipeline fallback preprocessing on sparse text")
 ):
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(
@@ -45,7 +47,8 @@ async def scan_label_image(
             image_bytes,
             enhance=enhance,
             min_confidence=min_confidence,
-            include_annotated_image=include_annotated_image
+            include_annotated_image=include_annotated_image,
+            fallback=fallback
         )
 
         if not result.success:
@@ -89,7 +92,8 @@ async def scan_label_base64(request: Base64ScanRequest):
             image_bytes,
             enhance=request.enhance,
             min_confidence=request.min_confidence,
-            include_annotated_image=request.include_annotated_image
+            include_annotated_image=request.include_annotated_image,
+            fallback=request.fallback
         )
 
         if not result.success:

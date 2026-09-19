@@ -1,15 +1,16 @@
 import logging
 from pathlib import Path
+from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from database import SessionLocal, get_db
-from models import Inspection, Violation
+from models import Inspection, Violation, Product
 from services.compliance_evaluator import evaluate_label_compliance
 from services.cloudinary_service import upload_image as upload_image_to_cloudinary
 from services.ocr_service import get_ocr_service
-from services.rule_loader import load_rules_from_file, get_rules_from_db
+from services.rule_loader import load_rules_from_file, get_rules_from_db, get_rules_for_category
 
 logger = logging.getLogger("uploads")
 
@@ -39,11 +40,21 @@ def _process_scan(inspection_id: str, image_bytes: bytes, db: Session | None = N
             if not ocr_result.success:
                 raise RuntimeError(ocr_result.error or "OCR extraction failed")
 
-            ruleset = get_rules_from_db(db=db)
+            cat = inspection.category
+            if not cat and inspection.product_id:
+                product = db.get(Product, inspection.product_id)
+                if product and product.category:
+                    cat = product.category
+            cat = (cat or "general").strip().lower()
+            inspection.category = cat
+
+            ruleset = get_rules_for_category(category=cat, db=db)
             compliance_result = evaluate_label_compliance(
                 ocr_result,
                 ruleset=ruleset,
                 db=db,
+                category=cat,
+                image_bytes=image_bytes,
             )
 
             structured_result = compliance_result.structured_result or {
@@ -69,6 +80,20 @@ def _process_scan(inspection_id: str, image_bytes: bytes, db: Session | None = N
                     else "NON_COMPLIANT"
                 )
 
+            # Save annotated violation evidence image to disk so user can view it in browser
+            if compliance_result.annotated_image_base64:
+                import base64
+                upload_dir = Path(__file__).resolve().parent.parent / "storage" / "uploads"
+                upload_dir.mkdir(parents=True, exist_ok=True)
+                ann_filename = f"scan_{inspection.id}_annotated.jpg"
+                ann_path = upload_dir / ann_filename
+                try:
+                    with open(ann_path, "wb") as f:
+                        f.write(base64.b64decode(compliance_result.annotated_image_base64))
+                    inspection.annotated_image_path = f"/uploads/{ann_filename}"
+                except Exception as err:
+                    logger.warning("Could not write annotated image file: %s", err)
+
             # Store structured compliance payload alongside the DB row for consistent UI/API consumption.
             inspection.raw_ocr_output = {
                 **(inspection.raw_ocr_output or {}),
@@ -76,13 +101,17 @@ def _process_scan(inspection_id: str, image_bytes: bytes, db: Session | None = N
             }
 
             for violation in compliance_result.summary.whats_wrong:
+                v_type = (violation.violation_type or "NON_COMPLIANT").upper()
+                v_sev = violation.severity or "CRITICAL"
+                v_title = f"{violation.field_name} - {v_type}"[:150]
+                v_desc = str(violation.description or "")[:500]
                 db.add(
                     Violation(
                         inspection_id=inspection.id,
                         rule_code=violation.rule_id,
-                        severity=violation.severity,
-                        title=f"{violation.field_name} - {violation.violation_type.upper()}",
-                        description=violation.description,
+                        severity=v_sev,
+                        title=v_title,
+                        description=v_desc,
                         evidence_bbox=(
                             violation.evidence_bbox.model_dump()
                             if violation.evidence_bbox
@@ -108,6 +137,10 @@ def _process_scan(inspection_id: str, image_bytes: bytes, db: Session | None = N
 async def upload_image(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Label photo file"),
+    category: Optional[str] = Form(default=None, description="Product category (food, cosmetics, textile, electronics, general)"),
+    product_id: Optional[str] = Form(default=None, description="Optional Product ID"),
+    category_query: Optional[str] = Query(default=None, alias="category"),
+    product_id_query: Optional[str] = Query(default=None, alias="product_id"),
     db: Session = Depends(get_db),
 ):
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -131,7 +164,25 @@ async def upload_image(
             detail="Unsupported image extension.",
         )
 
-    inspection = Inspection(status="PROCESSING")
+    resolved_category = category or category_query
+    resolved_product_id = product_id or product_id_query
+    if resolved_category in ("string", ""):
+        resolved_category = None
+    if resolved_product_id in ("string", ""):
+        resolved_product_id = None
+
+    if not resolved_category and resolved_product_id:
+        product = db.get(Product, resolved_product_id)
+        if product and product.category:
+            resolved_category = product.category
+    if resolved_category:
+        resolved_category = resolved_category.strip().lower()
+
+    inspection = Inspection(
+        status="PROCESSING",
+        category=resolved_category,
+        product_id=resolved_product_id,
+    )
 
     try:
         db.add(inspection)
@@ -201,8 +252,11 @@ def get_scan_result(scan_id: str, db: Session = Depends(get_db)):
 
     return {
         "scan_id": inspection.id,
+        "product_id": inspection.product_id,
+        "category": inspection.category,
         "status": inspection.status,
         "image_path": inspection.image_path,
+        "annotated_image_url": inspection.annotated_image_path,
         "created_at": inspection.created_at,
         "compliance_score": inspection.compliance_score,
         "ocr_result": inspection.raw_ocr_output,

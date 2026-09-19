@@ -1,63 +1,390 @@
 {
-  "ruleset_version": "1.1",
+  "ruleset_version": "2.0",
   "country_scope": "India",
   "governing_law": "Legal Metrology (Packaged Commodities) Rules, 2011 (Amended through 2026)",
-  "mandatory_declarations": [
+  "base_declarations": [
     {
       "id": "manufacturer_details",
       "field_name": "Manufacturer Name & Address",
-      "description": "Name and complete address of manufacturer/packer/importer.",
+      "description": "Name and complete address of manufacturer, packer, or importer.",
       "required": true,
       "expected_format": "Company Name, Address with Pincode",
-      "min_font_size_mm": 1.0
+      "min_font_size_mm": 1.0,
+      "detection_type": "text",
+      "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "rule_number": "Rule 6(1)(a)",
+      "source_document": "G.S.R. 202(E) / G.S.R. 629(E)",
+      "statutory_quote": "The name and complete address of the manufacturer, or where the manufacturer is not the packer, the name and complete address of the manufacturer and packer, or in case of imported packages, the name and complete address of the importer.",
+      "penalty_provision": "Section 36(1) of Legal Metrology Act, 2009 (fine up to ₹25,000 / ₹50,000 / ₹1,00,000)"
     },
     {
       "id": "net_quantity",
       "field_name": "Net Quantity",
-      "description": "Standard weight, volume, or number.",
+      "description": "Standard weight, volume, or number in standard metric SI units.",
       "required": true,
       "expected_format": "Numeric value with metric units (e.g., g, kg, ml, L, N)",
-      "min_font_size_mm": 1.5
+      "min_font_size_mm": 1.5,
+      "detection_type": "text",
+      "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "rule_number": "Rule 6(1)(b) & Rule 12",
+      "source_document": "G.S.R. 202(E) / G.S.R. 779(E)",
+      "statutory_quote": "The net quantity, in terms of the standard unit of weight or measure, of the commodity contained in the package or where the commodity is packed or sold by number, the number or unit or piece or pair or set which represents the quantity shall be mentioned.",
+      "penalty_provision": "Section 36(1) of Legal Metrology Act, 2009"
     },
     {
       "id": "mrp",
       "field_name": "Maximum Retail Price (MRP)",
-      "description": "MRP inclusive of all taxes.",
+      "description": "MRP inclusive of all taxes in Indian Rupees.",
       "required": true,
       "expected_format": "MRP Rs X.XX (incl. of all taxes) or ₹ X.XX",
-      "min_font_size_mm": 1.0
+      "min_font_size_mm": 1.0,
+      "detection_type": "text",
+      "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "rule_number": "Rule 6(1)(e)",
+      "source_document": "G.S.R. 779(E) dated 02.11.2021",
+      "statutory_quote": "The maximum retail price at which the commodity in packaged form may be sold to the consumer, inclusive of all taxes, in Indian currency (e.g. MRP Rs. / ₹ xx.xx, inclusive of all taxes).",
+      "penalty_provision": "Section 36(1) and Section 36(2) of Legal Metrology Act, 2009"
     },
     {
       "id": "unit_sale_price",
       "field_name": "Unit Sale Price",
-      "description": "Price per unit quantity (g, kg, ml, L, or piece).",
+      "description": "Mandatory unit sale price per gram, kilogram, millilitre, litre, or number.",
       "required": true,
-      "expected_format": "₹ X.XX / g or ₹ X.XX / ml",
-      "min_font_size_mm": 1.0
+      "expected_format": "₹ X.XX / g or ₹ X.XX / ml or ₹ X.XX / kg or ₹ X.XX / N",
+      "min_font_size_mm": 1.0,
+      "detection_type": "text",
+      "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "rule_number": "Rule 6(11)",
+      "source_document": "G.S.R. 779(E) dated 02.11.2021",
+      "statutory_quote": "The unit sale price shall be declared as 'Rs./₹ __ per g' for net qty < 1kg; 'Rs./₹ __ per kg' for net qty >= 1kg; 'Rs./₹ __ per ml' for net vol < 1L; 'Rs./₹ __ per litre' for net vol >= 1L; and 'Rs./₹ __ per number' for items sold by number.",
+      "penalty_provision": "Section 36(1) of Legal Metrology Act, 2009"
     },
     {
       "id": "manufacture_date",
       "field_name": "Month and Year of Manufacture",
-      "description": "Date or month/year of manufacture or packing.",
+      "description": "Month and year of manufacture, packing, or import.",
       "required": true,
       "expected_format": "MM/YYYY or MM-YYYY",
-      "min_font_size_mm": 1.0
+      "min_font_size_mm": 1.0,
+      "detection_type": "text",
+      "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "rule_number": "Rule 6(1)(c) & Rule 6(1)(d)",
+      "source_document": "G.S.R. 629(E) / G.S.R. 779(E)",
+      "statutory_quote": "The month and year in which the commodity is manufactured or pre-packed or imported, and if a commodity may become unfit for human consumption after a period of time, the 'best before' or 'use by date, month and year' shall also be mentioned.",
+      "penalty_provision": "Section 36(1) of Legal Metrology Act, 2009"
     },
     {
       "id": "consumer_care",
       "field_name": "Consumer Care Details",
-      "description": "Helpline number, email, and address for complaints.",
+      "description": "Helpline phone number, email address, and postal address for customer complaints.",
       "required": true,
       "expected_format": "Phone/Email/Address",
-      "min_font_size_mm": 1.0
+      "min_font_size_mm": 1.0,
+      "detection_type": "text",
+      "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "rule_number": "Rule 6(2)",
+      "source_document": "G.S.R. 202(E) / G.S.R. 629(E)",
+      "statutory_quote": "Every package shall bear the name, address, telephone number, and e-mail address of the person who can be contacted by the consumer in case of a complaint or query.",
+      "penalty_provision": "Section 36(1) of Legal Metrology Act, 2009"
     },
     {
       "id": "country_of_origin",
       "field_name": "Country of Origin",
-      "description": "Country where the product was produced.",
+      "description": "Country where the product was manufactured or assembled.",
       "required": true,
-      "expected_format": "Country name (e.g., Made in India)",
-      "min_font_size_mm": 1.0
+      "expected_format": "Country name (e.g., Made in India / Country of Origin: India)",
+      "min_font_size_mm": 1.0,
+      "detection_type": "text",
+      "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "rule_number": "Rule 6(1)(aa)",
+      "source_document": "G.S.R. 629(E) dated 23.06.2017",
+      "statutory_quote": "The name of the country of origin or manufacture or assembly in case of imported products shall be mentioned on the package.",
+      "penalty_provision": "Section 36(1) of Legal Metrology Act, 2009"
     }
-  ]
+  ],
+  "categories": {
+    "food": {
+      "name": "Food & Beverages",
+      "governing_law": "FSSAI Food Safety & Standards (Labelling and Display) Regulations, 2020",
+      "declarations": [
+        {
+          "id": "fssai_license",
+          "field_name": "FSSAI License Number & Logo",
+          "description": "14-digit FSSAI license number displayed along with the FSSAI logo in contrast color.",
+          "required": true,
+          "expected_format": "14-digit numeric (e.g. 10012345678901)",
+          "regex_pattern": "\\b[12]\\d{13}\\b",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text",
+          "act_name": "Food Safety and Standards (Labelling and Display) Regulations, 2020",
+          "rule_number": "Regulation 5(4)",
+          "source_document": "FSSAI Notification F. No. 1-94/FSSAI/SP(L&C)/2017",
+          "statutory_quote": "The FSSAI logo and 14-digit license number of the food business operator shall be displayed on the label of the food package in contrast color to the background."
+        },
+        {
+          "id": "veg_nonveg_symbol",
+          "field_name": "Veg / Non-Veg Indicator",
+          "description": "Green filled circle (veg) or brown filled triangle (non-veg) inside a square.",
+          "required": true,
+          "expected_format": "Visual green dot or brown triangle logo or textual vegetarian statement",
+          "min_font_size_mm": 1.0,
+          "detection_type": "visual",
+          "act_name": "Food Safety and Standards (Labelling and Display) Regulations, 2020",
+          "rule_number": "Regulation 5(4)(c)",
+          "source_document": "FSSAI Notification F. No. 1-94/FSSAI/SP(L&C)/2017",
+          "statutory_quote": "Every package of vegetarian food shall bear a green color filled circle inside a square, and non-vegetarian food shall bear a brown color filled triangle inside a square on the principal display panel."
+        },
+        {
+          "id": "nutritional_info",
+          "field_name": "Nutritional Information Table",
+          "description": "Per 100g/serving: Energy (kcal), Protein, Carbohydrate, Total Sugar, Added Sugar, Total Fat, Saturated Fat, Trans Fat, Sodium.",
+          "required": true,
+          "expected_format": "Tabular format with numeric values and units",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text",
+          "act_name": "Food Safety and Standards (Labelling and Display) Regulations, 2020",
+          "rule_number": "Regulation 5(3)",
+          "source_document": "FSSAI Notification F. No. 1-94/FSSAI/SP(L&C)/2017",
+          "statutory_quote": "Nutritional information per 100g or 100ml or per single serving: Energy (kcal), Protein (g), Carbohydrate (g), Total Sugars (g), Added Sugars (g), Total Fat (g), Saturated Fat (g), Trans Fat (g), and Sodium (mg)."
+        },
+        {
+          "id": "ingredients_list",
+          "field_name": "List of Ingredients",
+          "description": "Complete ingredient listing in descending order by weight or volume.",
+          "required": true,
+          "expected_format": "Comma-separated ingredient names, descending order",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text",
+          "act_name": "Food Safety and Standards (Labelling and Display) Regulations, 2020",
+          "rule_number": "Regulation 5(1)",
+          "source_document": "FSSAI Notification F. No. 1-94/FSSAI/SP(L&C)/2017",
+          "statutory_quote": "Ingredients shall be listed in descending order of their composition by weight or volume (m/m or v/v) at the time of manufacture of the food product."
+        },
+        {
+          "id": "allergen_info",
+          "field_name": "Allergen Warning",
+          "description": "Allergen declaration for substances like gluten, nuts, milk, soy, eggs.",
+          "required": true,
+          "expected_format": "Contains: <allergen list> or 'May contain traces of...'",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text",
+          "act_name": "Food Safety and Standards (Labelling and Display) Regulations, 2020",
+          "rule_number": "Regulation 5(2)",
+          "source_document": "FSSAI Notification F. No. 1-94/FSSAI/SP(L&C)/2017",
+          "statutory_quote": "Foods containing cereals with gluten, crustacea, fish, eggs, peanuts, soybeans, milk, tree nuts shall declare allergens as 'Contains: <allergen>' or 'May contain traces of...'."
+        }
+      ],
+      "exemptions": [
+        {
+          "condition": "net_quantity_below_10g_or_10ml",
+          "description": "Packages with net content <= 10g or 10ml are exempt from detailed nutritional information table.",
+          "exempted_rule_ids": ["nutritional_info"]
+        }
+      ]
+    },
+    "cosmetics": {
+      "name": "Cosmetics & Personal Care",
+      "governing_law": "Drugs and Cosmetics Act, 1940 / Cosmetics Rules, 2020",
+      "declarations": [
+        {
+          "id": "mfg_license_no",
+          "field_name": "Manufacturing License Number",
+          "description": "Manufacturing license number issued by state licensing authority.",
+          "required": true,
+          "expected_format": "Mfg Lic No. / M.L. No. followed by alphanumeric code",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text",
+          "act_name": "Drugs and Cosmetics Act, 1940 & Cosmetics Rules, 2020",
+          "rule_number": "Rule 34(1)(a)",
+          "source_document": "Cosmetics Rules, 2020 (G.S.R. 718(E))",
+          "statutory_quote": "The manufacturing licence number under which the cosmetic is manufactured, preceded by the letters 'M.L. No.' or 'Mfg. Lic. No.'."
+        },
+        {
+          "id": "batch_lot_number",
+          "field_name": "Batch / Lot Number",
+          "description": "Batch or lot number for traceability preceded by 'B.No.' or 'Batch No.'.",
+          "required": true,
+          "expected_format": "B.No. / Batch No. / Lot No. followed by alphanumeric code",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text",
+          "act_name": "Cosmetics Rules, 2020",
+          "rule_number": "Rule 34(1)(d)",
+          "source_document": "Cosmetics Rules, 2020 (G.S.R. 718(E))",
+          "statutory_quote": "A distinctive batch number, that is to say, the number by reference to which details of manufacture of the particular batch from which the substance in the container is taken are recorded, preceded by the letter 'B' or 'Batch No.' or 'B. No.'."
+        },
+        {
+          "id": "cosmetic_ingredients",
+          "field_name": "Full Ingredients List (INCI)",
+          "description": "Complete list of ingredients using INCI nomenclature.",
+          "required": true,
+          "expected_format": "Comma-separated INCI ingredient names",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text",
+          "act_name": "Cosmetics Rules, 2020",
+          "rule_number": "Rule 34(1)(b)",
+          "source_document": "Cosmetics Rules, 2020 (G.S.R. 718(E))",
+          "statutory_quote": "The names of ingredients in the cosmetic product shall be listed in descending order of weight or volume at the time they are added, followed by those in concentrations of less than one per cent, in any order, preceded by the words 'INGREDIENTS'."
+        },
+        {
+          "id": "directions_for_use",
+          "field_name": "Directions for Use / How to Use",
+          "description": "Instructions for safe usage and application.",
+          "required": true,
+          "expected_format": "Directions for use / How to apply instructions",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text",
+          "act_name": "Cosmetics Rules, 2020",
+          "rule_number": "Rule 34(1)(c)",
+          "source_document": "Cosmetics Rules, 2020 (G.S.R. 718(E))",
+          "statutory_quote": "Adequate direction for safe use, warnings, caution or special direction, if any, shall be printed on the label."
+        },
+        {
+          "id": "cosmetic_warnings",
+          "field_name": "Warning / Precautionary Statements",
+          "description": "Applicable warning statements (e.g., 'For external use only', 'Avoid contact with eyes').",
+          "required": false,
+          "expected_format": "Warning text on label",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text",
+          "act_name": "Cosmetics Rules, 2020",
+          "rule_number": "Rule 34(1)(c) & Ninth Schedule",
+          "source_document": "Cosmetics Rules, 2020",
+          "statutory_quote": "Any warning or caution statements specified in the Ninth Schedule or required under these rules."
+        }
+      ],
+      "exemptions": []
+    },
+    "textile": {
+      "name": "Textiles & Apparel",
+      "governing_law": "Legal Metrology (Packaged Commodities) Rules, 2011 — Garment & Textile Provisions",
+      "declarations": [
+        {
+          "id": "fibre_composition",
+          "field_name": "Fibre Composition",
+          "description": "Percentage composition of each fibre type in the fabric.",
+          "required": true,
+          "expected_format": "e.g. '100% Cotton' or '65% Polyester 35% Cotton'",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text",
+          "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+          "rule_number": "Rule 26(f)",
+          "source_document": "G.S.R. 648(E)",
+          "statutory_quote": "Fibre composition of the fabric, containing percentage of each fibre used in the commodity (e.g. 100% Cotton, 80% Cotton 20% Polyester)."
+        },
+        {
+          "id": "size_declaration",
+          "field_name": "Standard Size & Body Dimensions",
+          "description": "International standard size letter (S, M, L, XL, XXL) plus body measurements in metric centimetres.",
+          "required": true,
+          "expected_format": "Size letter (S/M/L/XL/XXL) with chest/waist in cm",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text",
+          "act_name": "Legal Metrology (Packaged Commodities) Rules, 2011",
+          "rule_number": "Rule 26(f)",
+          "source_document": "G.S.R. 648(E)",
+          "statutory_quote": "Standard sizes of garments/apparel with dimensions in metric units: S (Chest 88-93cm), M (93-99cm), L (99-105cm), XL (105-111cm), XXL (111-116cm)."
+        },
+        {
+          "id": "wash_care",
+          "field_name": "Wash Care Instructions",
+          "description": "Washing, drying, and ironing instructions or ISO symbols.",
+          "required": true,
+          "expected_format": "ISO wash care symbols or textual instructions",
+          "min_font_size_mm": 1.0,
+          "detection_type": "visual",
+          "act_name": "Bureau of Indian Standards Textile Labelling",
+          "rule_number": "IS 14452 / Rule 26(f)",
+          "source_document": "BIS Textile Guidelines",
+          "statutory_quote": "Care labelling code using symbols or words for washing, bleaching, drying, and ironing."
+        }
+      ],
+      "exemptions": []
+    },
+    "electronics": {
+      "name": "Electronics & Electrical Appliances",
+      "governing_law": "Legal Metrology Rules & BIS (Bureau of Indian Standards) CRO",
+      "declarations": [
+        {
+          "id": "bis_registration",
+          "field_name": "BIS / CRS Registration Mark",
+          "description": "BIS certification or CRS registration number (R-XXXXXXXX).",
+          "required": true,
+          "expected_format": "R-XXXXXXXX (CRS Registration Number)",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text",
+          "act_name": "Electronics and Information Technology Goods (Compulsory Registration) Order",
+          "rule_number": "CRO Order 2021",
+          "source_document": "MeitY Gazette / BIS Act, 2016",
+          "statutory_quote": "Every electronic product notified under Compulsory Registration Scheme shall bear the Standard Mark with registration number R-XXXXXXXX."
+        },
+        {
+          "id": "power_ratings",
+          "field_name": "Voltage / Wattage / Input Ratings",
+          "description": "Electrical input ratings: voltage, wattage, frequency.",
+          "required": true,
+          "expected_format": "e.g. '230V~50Hz, 1500W' or 'Input: 100-240V, 50/60Hz'",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text",
+          "act_name": "Central Electricity Authority Regulations & BIS Safety Standards",
+          "rule_number": "IS/IEC 60950 / IS/IEC 62368",
+          "source_document": "Safety of Audio/Video, Information and Communication Technology Equipment",
+          "statutory_quote": "The rated voltage or rated voltage range, nature of supply, rated frequency, and rated power input or current shall be marked on the appliance."
+        },
+        {
+          "id": "qr_code_declaration",
+          "field_name": "QR Code Declaration for Electronic Goods",
+          "description": "QR code on package allowing consumers to scan for address, dimensions, and customer support details.",
+          "required": false,
+          "expected_format": "Readable QR code with text: 'Scan QR code for full details'",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text",
+          "act_name": "Legal Metrology (Packaged Commodities) (Second Amendment) Rules, 2022",
+          "rule_number": "Rule 6(1) & 6(2) Provisos (G.S.R. 577(E))",
+          "source_document": "G.S.R. 577(E) dated 14.07.2022",
+          "statutory_quote": "In the case of an electronic product, the package shall declare the name of manufacturer/packer/importer on the package itself and inform consumers to scan the QR code for address, generic name, size, dimensions, and customer care details."
+        },
+        {
+          "id": "bee_star_rating",
+          "field_name": "BEE Energy Star Rating Label",
+          "description": "Bureau of Energy Efficiency star rating label with star level, annual energy consumption (kWh/year), and validity period.",
+          "required": false,
+          "expected_format": "Star rating label with 'ELECTRICITY CONSUMPTION' / 'kWh/year' and 'BEE' logo",
+          "min_font_size_mm": 1.0,
+          "detection_type": "text",
+          "act_name": "Bureau of Energy Efficiency (BEE) Regulations & Energy Conservation Act, 2001",
+          "rule_number": "Regulation 3 & Schedule I",
+          "source_document": "BEE Star Labelling Notification & Energy Conservation Act",
+          "statutory_quote": "Every appliance notified under Star Labelling Scheme shall affix the Star Label displaying the Star Level (1 to 5), Electricity Consumption in kWh/year, label period validity, brand, and model details.",
+          "penalty_provision": "Section 26 of Energy Conservation Act, 2001 (penalty up to ₹10,00,000)"
+        }
+      ],
+      "exemptions": []
+    },
+    "pan_masala": {
+      "name": "Pan Masala & Gutkha Products",
+      "governing_law": "Legal Metrology (Packaged Commodities) Second (Amendment) Rules, 2025 (G.S.R. 881(E))",
+      "declarations": [
+        {
+          "id": "pan_masala_warning",
+          "field_name": "Statutory Health Warning",
+          "description": "Statutory warning: 'Chewing of Pan Masala is injurious to health'.",
+          "required": true,
+          "expected_format": "Chewing of Pan Masala is injurious to health",
+          "min_font_size_mm": 1.5,
+          "detection_type": "text",
+          "act_name": "Legal Metrology (Packaged Commodities) Second (Amendment) Rules, 2025",
+          "rule_number": "Rule 26(a) Second Proviso (G.S.R. 881(E))",
+          "source_document": "G.S.R. 881(E) dated 02.12.2025",
+          "statutory_quote": "Provided further that nothing contained in this clause shall apply to the packages containing pan masala having net quantity of up to ten grams."
+        }
+      ],
+      "exemptions": [
+        {
+          "condition": "no_small_pack_exemption",
+          "description": "Rule 26(a) <= 10g exemption is strictly prohibited for Pan Masala by G.S.R. 881(E) dated 02.12.2025. Full declarations mandatory on all pouches.",
+          "exempted_rule_ids": []
+        }
+      ]
+    }
+  }
 }

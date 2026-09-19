@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, String, DateTime
 from database import Base
 
@@ -12,4 +12,4 @@ class Product(Base):
     commodity_name = Column(String(150), nullable=True)
     manufacturer_name = Column(String(200), nullable=True)
     category = Column(String(100), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)

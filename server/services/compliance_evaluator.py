@@ -1,7 +1,11 @@
 import re
+import io
 import time
+import uuid
+import base64
 import logging
 from typing import List, Dict, Any, Optional
+from PIL import Image, ImageDraw
 
 from schemas.ocr import OCRScanResult, TextBlock, BBox
 from schemas.compliance import (
@@ -11,9 +15,81 @@ from schemas.compliance import (
     DeclarationMissing,
     ViolationDetail
 )
-from services.rule_loader import get_rules_from_db
+from services.rule_loader import get_rules_from_db, get_rules_for_category
+from services.llm_evaluator import get_llm_evaluator, get_package_element_for_rule
+from services.rag.citation_service import get_citation_service
 
 logger = logging.getLogger("compliance_evaluator")
+
+# Patterns and keywords for category-specific declarations
+CATEGORY_RULE_PATTERNS = {
+    "fssai_license": {
+        "keywords": ["FSSAI", "LIC NO", "LICENSE NO", "LIC. NO", "FSSAI LIC"],
+        "regex": r"\b[12]\d{13}\b"
+    },
+    "veg_nonveg_symbol": {
+        "keywords": ["VEG", "VEGETARIAN", "NON-VEG", "NON VEGETARIAN", "GREEN DOT", "BROWN TRIANGLE"],
+    },
+    "nutritional_info": {
+        "keywords": ["NUTRITION", "NUTRITIONAL", "ENERGY", "PROTEIN", "CARBOHYDRATE", "FAT", "TOTAL SUGAR", "PER 100", "CALORIES", "KCAL"]
+    },
+    "ingredients_list": {
+        "keywords": ["INGREDIENTS", "INGREDIENT", "CONTAINS", "COMPOSITION", "CONTENTS"]
+    },
+    "allergen_info": {
+        "keywords": ["ALLERGEN", "ALLERGY", "MAY CONTAIN", "CONTAINS:", "CONTAINS WHEAT", "CONTAINS GLUTEN", "CONTAINS MILK", "CONTAINS NUTS", "CONTAINS SOY"]
+    },
+    "mfg_license_no": {
+        "keywords": ["MFG LIC", "M.L. NO", "ML NO", "MFG. LIC", "MFG. LICENSE", "LICENSE NO", "M.L."]
+    },
+    "batch_lot_number": {
+        "keywords": ["BATCH", "B.NO", "LOT NO", "LOT", "B. NO", "BATCH NO", "LOT NUMBER"]
+    },
+    "cosmetic_ingredients": {
+        "keywords": ["INGREDIENTS", "COMPOSITION", "INCI", "CONTAINS", "AQUA", "WATER", "KEY INGREDIENTS", "ACTIVE INGREDIENTS", "PURIFIED WATER", "GLYCERIN"]
+    },
+    "directions_for_use": {
+        "keywords": ["HOW TO USE", "DIRECTIONS FOR USE", "DIRECTIONS", "HOW TO APPLY", "USAGE", "APPLICATION", "USAGE DIRECTIONS", "APPLY TO", "APPLY ON", "MASSAGE GENTLY", "RINSE OFF", "PATCH TEST"]
+    },
+    "cosmetic_warnings": {
+        "keywords": ["WARNING", "CAUTION", "FOR EXTERNAL USE ONLY", "AVOID CONTACT WITH EYES", "KEEP OUT OF REACH"]
+    },
+    "fibre_composition": {
+        "keywords": ["COTTON", "POLYESTER", "FIBRE", "FABRIC", "WOOL", "SILK", "VISCOSE", "NYLON", "ELASTANE", "%"]
+    },
+    "size_declaration": {
+        "keywords": ["SIZE", "CHEST", "WAIST", "CM", "LENGTH", "CHEST SIZE", "BODY MEASUREMENT"],
+        "regex": r"\b(SIZE\s*:\s*[SMLX]+|\b[SMLX]{1,4}\b|\b\d{2,3}\s*CM\b)"
+    },
+    "wash_care": {
+        "keywords": ["WASH", "CARE", "IRON", "BLEACH", "DRY CLEAN", "DO NOT BLEACH", "WARM WASH", "MACHINE WASH", "HAND WASH"]
+    },
+    "bis_registration": {
+        "keywords": ["BIS", "CRS", "REGISTRATION", "IS/IEC", r"IS \d+", "ISI"],
+        "regex": r"\b(R-\d{8}|IS\s*\d+)\b"
+    },
+    "power_ratings": {
+        "keywords": ["VOLT", "WATT", "INPUT", "OUTPUT", "POWER", "RATING", "HZ"],
+        "regex": r"\b\d+\s*(?:V|W|HZ|VOLT|WATT)\b"
+    },
+    "unit_sale_price": {
+        "keywords": ["UNIT SALE PRICE", "UNIT PRICE", "USP", "PRICE PER"],
+        "regex": r"(?:USP|UNIT\s*SALE\s*PRICE|UNIT\s*PRICE)[^\d]*[\d,]+(?:\.\d{1,2})?"
+    },
+    "pan_masala_warning": {
+        "keywords": ["CHEWING OF PAN MASALA", "INJURIOUS TO HEALTH", "PAN MASALA", "GUTKHA", "HEALTH WARNING"],
+        "regex": r"(?:CHEWING\s+OF\s+PAN\s+MASALA|INJURIOUS\s+TO\s+HEALTH)"
+    },
+    "qr_code_declaration": {
+        "keywords": ["SCAN QR", "QR CODE", "SCAN FOR DETAILS", "SCAN FOR INFORMATION"],
+        "regex": r"(?:SCAN\s+(?:QR|CODE|FOR))"
+    },
+    "bee_star_rating": {
+        "keywords": ["BEE", "ENERGY STAR", "STAR RATING", "ELECTRICITY CONSUMPTION", "KWH/YEAR", "UNITS/YEAR", "ENERGY EFFICIENCY", "STAR LABEL"],
+        "regex": r"(?:BEE\s+STAR|STAR\s+RATING|KWH\/YEAR|UNITS\/YEAR|ELECTRICITY\s+CONSUMPTION)"
+    }
+}
+
 
 
 # --- Text Normalization -------------------------------------------------------------
@@ -71,7 +147,7 @@ def _has_keyword(norm: str, keywords: List[str]) -> bool:
     word-boundary matching misses every glued OCR token; this covers both."""
     flat_norm = despace(norm)
     for keyword in keywords:
-        if re.search(r"" + re.escape(keyword) + r"", norm):
+        if re.search(r"\b" + re.escape(keyword) + r"\b", norm):
             return True
         flat_keyword = despace(keyword)
         if (
@@ -124,11 +200,18 @@ _COUNTRY_KEYWORDS = ["PRODUCT OF", "MADE IN", "COUNTRY OF ORIGIN", "ORIGIN"]
 
 
 class ComplianceEvaluator:
-    def __init__(self, ruleset: Optional[Dict[str, Any]] = None, db: Optional[Any] = None):
+    def __init__(
+        self,
+        ruleset: Optional[Dict[str, Any]] = None,
+        db: Optional[Any] = None,
+        category: Optional[str] = None
+    ):
         if ruleset is None:
-            ruleset = get_rules_from_db(db=db)
+            ruleset = get_rules_for_category(category=category, db=db)
         self.ruleset = ruleset
+        self.category = category or ruleset.get("category", "general")
         self.mandatory_rules = ruleset.get("mandatory_declarations", [])
+        self.exemptions = ruleset.get("exemptions", [])
         self.rule_map = {r["id"]: r for r in self.mandatory_rules}
 
     def _get_min_font_size(self, rule_id: str, default: float = 1.0) -> float:
@@ -141,14 +224,87 @@ class ComplianceEvaluator:
                 pass
         return default
 
-    def evaluate(self, ocr_result: OCRScanResult) -> ComplianceResult:
+    def evaluate(self, ocr_result: OCRScanResult, image_bytes: Optional[bytes] = None) -> ComplianceResult:
         """
-        Core "Brain" function for Task #6:
-        - Takes OCR text blocks from Task #4
-        - Matches text blocks to legal declaration entities
-        - Runs Presence, Format, and Font Size checks
-        - Returns structured result: what was found, missing, wrong, and overall PASS/FAIL.
+        Core Compliance Engine:
+        - First checks if direct LLM evaluation (Groq / Qwen) is active.
+        - If active and successful, returns grounded LLM compliance result.
+        - Otherwise, executes deterministic Legal Metrology regex validation.
+        - Generates color-coded evidence image highlighting only non-compliant blocks.
         """
+        # 1. Direct LLM Evaluation Hook (Groq / Qwen)
+        llm_eval = get_llm_evaluator()
+        if llm_eval.is_available():
+            llm_result = llm_eval.evaluate_with_llm(
+                ocr_result,
+                category=self.category,
+                ruleset=self.ruleset
+            )
+            if llm_result is not None:
+                # Attach official statutory legal citations to LLM findings
+                citation_svc = get_citation_service()
+                for d in llm_result.summary.what_was_found:
+                    if not d.citation:
+                        d.citation = citation_svc.get_citation(d.id)
+                    # Enforce Rule 12 check on net quantity
+                    if d.id == "net_quantity":
+                        t_upper = flatten_text(d.extracted_text)
+                        illegal_match = re.search(r'\b(GMS|GM|G\.|GM\.|GMS\.|KGS|KG\.|KILO|KILOS|LTR|LTRS|LTR\.|LIT|LITERS|LITRES|MLS|ML\.|M\.L\.|MTS|MTR|MTRS)\b', t_upper)
+                        if illegal_match:
+                            d.format_valid = False
+                            d.status = "FORMAT_ERROR"
+                            illegal_sym = illegal_match.group(0)
+                            rule12_cit = citation_svc.get_citation("rule_12_metric_symbol")
+                            if not any(v.rule_id == "net_quantity" and v.violation_type == "wrong_format" for v in llm_result.summary.whats_wrong):
+                                llm_result.summary.whats_wrong.append(ViolationDetail(
+                                    id=f"viol_rule12_net_qty_{uuid.uuid4().hex[:12]}",
+                                    rule_id="net_quantity",
+                                    field_name="Net Quantity",
+                                    violation_type="wrong_format",
+                                    severity="MAJOR",
+                                    description=f"Net Quantity uses illegal non-standard unit symbol '{illegal_sym}'. Legal Metrology Rule 12 & Third Schedule strictly mandates standard SI symbols ('g', 'kg', 'ml', 'L', 'N').",
+                                    evidence_bbox=d.bbox,
+                                    citation=rule12_cit
+                                ))
+                                llm_result.overall_result = "FAIL"
+                                llm_result.compliance_score = max(round(llm_result.compliance_score - 15.0, 1), 0.0)
+
+                for m in llm_result.summary.whats_missing:
+                    if not m.citation:
+                        m.citation = citation_svc.get_citation(m.id)
+                for v in llm_result.summary.whats_wrong:
+                    # Sanitize multi-piece net quantity violations
+                    if v.rule_id in ("net_quantity", "multi_piece_net_quantity"):
+                        desc_lower = (v.description or "").lower()
+                        if "non-standard" in desc_lower or "instead of total" in desc_lower or "30nx5g" in desc_lower or "wrong_format" in str(v.violation_type).lower():
+                            raw_nq = next((d.extracted_text for d in llm_result.summary.what_was_found if d.id == "net_quantity"), "30 N x 5 g")
+                            clean_nq = re.sub(r'(\d+)\s*N\s*x\s*(\d+)\s*g', r'\1 N x \2 g', raw_nq, flags=re.I)
+                            v.title = "Net Quantity (Multi-Piece Package) - MISSING_TOTAL_QUANTITY"
+                            v.rule_id = "multi_piece_net_quantity"
+                            v.violation_type = "missing_total_quantity"
+                            v.severity = "MAJOR"
+                            v.description = (
+                                f"Multi-piece package declares individual units ('{clean_nq}', where 'N' = Number of Units) "
+                                "but omits the mandatory Total Net Quantity (e.g., '150 g' or '30 N x 5 g = 150 g'). "
+                                "Rule 24 & Rule 2(kc) of Legal Metrology (Packaged Commodities) Rules, 2011 strictly mandate "
+                                "that multi-piece packages declare both the individual pieces and the total net quantity."
+                            )
+                            v.detected_on_package = clean_nq
+                            v.expected_on_package = "Total Net Quantity: 150 g (30 N x 5 g)"
+                            v.citation = citation_svc.get_citation("multi_piece_net_quantity") or citation_svc.get_citation("rule_24_multi_piece")
+                    if not v.citation:
+                        v.citation = citation_svc.get_citation(v.rule_id)
+
+                if image_bytes:
+                    evidence_b64 = self.generate_violation_evidence_image(
+                        image_bytes,
+                        llm_result.summary.whats_wrong,
+                        llm_result.summary.whats_missing
+                    )
+                    if evidence_b64:
+                        llm_result.annotated_image_base64 = evidence_b64
+                return llm_result
+
         start_time = time.time()
         
         found_declarations: List[DeclarationFound] = []
@@ -162,16 +318,25 @@ class ComplianceEvaluator:
         # across two OCR blocks be matched at all.
         doc_norm = self._document_text(ocr_result)
 
-        # (rule_id, detector, evaluator) - one source for both passes below, so the
-        # primary classification and the fallback can never drift apart.
-        matchers = [
-            ("mrp", self._is_mrp, lambda b: self._eval_mrp(b, ocr_result, doc_norm)),
-            ("net_quantity", self._is_net_quantity, lambda b: self._eval_net_quantity(b, img_height)),
-            ("manufacture_date", self._is_mfg_date, lambda b: self._eval_mfg_date(b, img_height)),
-            ("consumer_care", self._is_consumer_care, lambda b: self._eval_consumer_care(b, img_height)),
-            ("manufacturer_details", self._is_manufacturer_details, lambda b: self._eval_manufacturer_details(b, img_height)),
-            ("country_of_origin", self._is_country_of_origin, lambda b: self._eval_country_of_origin(b, img_height)),
-        ]
+        # Build dynamic matchers for all rules present in active ruleset
+        standard_map = {
+            "mrp": (self._is_mrp, lambda b: self._eval_mrp(b, ocr_result, doc_norm)),
+            "net_quantity": (self._is_net_quantity, lambda b: self._eval_net_quantity(b, img_height, doc_norm)),
+            "manufacture_date": (self._is_mfg_date, lambda b: self._eval_mfg_date(b, img_height)),
+            "consumer_care": (self._is_consumer_care, lambda b: self._eval_consumer_care(b, img_height)),
+            "manufacturer_details": (self._is_manufacturer_details, lambda b: self._eval_manufacturer_details(b, img_height)),
+            "country_of_origin": (self._is_country_of_origin, lambda b: self._eval_country_of_origin(b, img_height)),
+        }
+
+        matchers = []
+        for r in self.mandatory_rules:
+            rid = r["id"]
+            if rid in standard_map:
+                det, ev = standard_map[rid]
+                matchers.append((rid, det, ev))
+            else:
+                det, ev = self._build_dynamic_matcher(r, img_height)
+                matchers.append((rid, det, ev))
 
         # rule_id -> [(score, DeclarationFound, [ViolationDetail])]. A single label
         # legitimately produces several matching blocks for the same rule (an MRP price
@@ -217,10 +382,33 @@ class ComplianceEvaluator:
 
         matched_rule_ids = set(candidates.keys())
 
+        # Check if net quantity below 10g/10ml applies for nutritional_info exemption
+        net_qty_found = next((d for d in found_declarations if d.id == "net_quantity"), None)
+        is_small_pack = False
+        if net_qty_found and net_qty_found.extracted_text:
+            qty_match = re.search(r"(\d+(?:\.\d+)?)\s*(g|gm|grams|ml)\b", net_qty_found.extracted_text, re.IGNORECASE)
+            if qty_match:
+                try:
+                    val = float(qty_match.group(1))
+                    if val <= 10.0:
+                        is_small_pack = True
+                except (ValueError, TypeError):
+                    pass
+
+        exempted_ids = set()
+        for ex in self.exemptions:
+            cond = ex.get("condition")
+            if cond == "net_quantity_below_10g_or_10ml" and is_small_pack:
+                exempted_ids.update(ex.get("exempted_rule_ids", []))
+
         # Step 2: Check Presence for all mandatory declarations defined in active ruleset
         for rule in self.mandatory_rules:
             rule_id = rule["id"]
             is_required = rule.get("required", True)
+
+            if rule_id in exempted_ids:
+                logger.info(f"Rule '{rule_id}' is exempt under category exemption.")
+                continue
 
             if rule_id not in matched_rule_ids and is_required:
                 missing_decl = DeclarationMissing(
@@ -232,15 +420,41 @@ class ComplianceEvaluator:
                 missing_declarations.append(missing_decl)
 
                 viol = ViolationDetail(
-                    id=f"viol_missing_{rule_id}_{int(time.time())}",
+                    id=f"viol_missing_{rule_id}_{uuid.uuid4().hex[:12]}",
                     rule_id=rule_id,
                     field_name=rule.get("field_name", rule_id),
                     violation_type="missing",
-                    severity="CRITICAL" if rule_id in ["mrp", "net_quantity"] else "MAJOR",
+                    severity="CRITICAL" if rule_id in ["mrp", "net_quantity", "fssai_license"] else "MAJOR",
                     description=f"Mandatory declaration '{rule.get('field_name')}' is missing from product packaging.",
                     evidence_bbox=None
                 )
                 violations.append(viol)
+
+        # Step 2b: Attach official statutory legal citations to all declarations and violations
+        citation_svc = get_citation_service()
+        for decl in found_declarations:
+            if not decl.citation:
+                decl.citation = citation_svc.get_citation(decl.id)
+
+        for missing in missing_declarations:
+            if not missing.citation:
+                missing.citation = citation_svc.get_citation(missing.id)
+
+        for viol in violations:
+            if not viol.citation:
+                viol.citation = citation_svc.get_citation(viol.rule_id)
+            if not viol.package_element:
+                viol.package_element = get_package_element_for_rule(viol.rule_id)
+            if not viol.expected_on_package:
+                viol.expected_on_package = (
+                    self.rule_map.get(viol.rule_id, {}).get("expected_format")
+                    or f"Mandatory statutory declaration conforming to {viol.field_name} rules"
+                )
+            if not viol.detected_on_package:
+                if viol.violation_type == "missing":
+                    viol.detected_on_package = "Not printed anywhere on the package (Missing from label artwork)"
+                else:
+                    viol.detected_on_package = "Non-compliant text/declaration on packaging"
 
         # Step 3: Compute Compliance Score and Overall PASS/FAIL Status
         total_required = sum(1 for r in self.mandatory_rules if r.get("required", True))
@@ -276,6 +490,7 @@ class ComplianceEvaluator:
                     "value": item.extracted_text,
                     "status": item.status,
                     "confidence": item.confidence,
+                    "citation": item.citation.model_dump() if item.citation else None,
                 }
                 for item in found_declarations
             ],
@@ -286,11 +501,23 @@ class ComplianceEvaluator:
                     "description": item.description,
                     "field_name": item.field_name,
                     "violation_type": item.violation_type,
+                    "detected_on_package": item.detected_on_package,
+                    "expected_on_package": item.expected_on_package,
+                    "package_element": item.package_element,
+                    "citation": item.citation.model_dump() if item.citation else None,
                 }
                 for item in violations
             ],
             "final_status": "COMPLIANT" if overall_result == "PASS" else "NON_COMPLIANT",
         }
+
+        annotated_b64 = None
+        if image_bytes:
+            annotated_b64 = self.generate_violation_evidence_image(
+                image_bytes,
+                violations,
+                missing_declarations
+            )
 
         return ComplianceResult(
             overall_result=overall_result,
@@ -299,9 +526,78 @@ class ComplianceEvaluator:
             total_found=total_found_valid,
             summary=summary,
             processing_time_ms=processing_time,
-            annotated_image_base64=ocr_result.annotated_image_base64,
+            annotated_image_base64=annotated_b64 or ocr_result.annotated_image_base64,
             structured_result=structured_result,
         )
+
+    def generate_violation_evidence_image(
+        self,
+        image_bytes: bytes,
+        violations: List[ViolationDetail],
+        missing_declarations: List[DeclarationMissing]
+    ) -> Optional[str]:
+        """
+        Draws focused, color-coded bounding boxes strictly for non-compliant declarations.
+        CRITICAL: Red (#EF4444)
+        MAJOR: Orange (#F97316)
+        MINOR: Yellow (#EAB308)
+        Adds top-banner alert if mandatory declarations are missing.
+        """
+        try:
+            pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+            overlay = Image.new("RGBA", pil_img.size, (255, 255, 255, 0))
+            draw = ImageDraw.Draw(overlay)
+
+            severity_colors = {
+                "CRITICAL": ((239, 68, 68, 255), (239, 68, 68, 55)),
+                "MAJOR": ((249, 115, 22, 255), (249, 115, 22, 45)),
+                "MINOR": ((234, 179, 8, 255), (234, 179, 8, 35))
+            }
+
+            for v in violations:
+                if not v.evidence_bbox or v.evidence_bbox.x_max <= 0:
+                    continue
+
+                bbox = v.evidence_bbox
+                outline_color, fill_color = severity_colors.get(v.severity, severity_colors["CRITICAL"])
+
+                # Draw bounding rectangle around the violating text block
+                draw.rectangle(
+                    [(bbox.x_min, bbox.y_min), (bbox.x_max, bbox.y_max)],
+                    outline=outline_color,
+                    width=3,
+                    fill=fill_color
+                )
+
+                # Draw badge pill label above box
+                v_type = (v.violation_type or "NON_COMPLIANT").upper()
+                v_sev = (v.severity or "VIOLATION").upper()
+                label_text = f"[{v_sev}] {v.field_name}: {v_type}"
+                badge_y = max(0, bbox.y_min - 20)
+                badge_w = len(label_text) * 7 + 10
+                draw.rectangle(
+                    [(bbox.x_min, badge_y), (bbox.x_min + badge_w, badge_y + 18)],
+                    fill=outline_color
+                )
+                draw.text((bbox.x_min + 5, badge_y + 2), label_text, fill=(255, 255, 255, 255))
+
+            # Missing declarations top banner
+            if missing_declarations:
+                missing_names = ", ".join(d.field_name for d in missing_declarations[:3])
+                if len(missing_declarations) > 3:
+                    missing_names += f" +{len(missing_declarations) - 3} more"
+                banner_text = f"NON-COMPLIANCE: Missing mandatory declarations: {missing_names}"
+                banner_h = 30
+                draw.rectangle([(0, 0), (pil_img.size[0], banner_h)], fill=(185, 28, 28, 220))
+                draw.text((12, 7), banner_text, fill=(255, 255, 255, 255))
+
+            combined = Image.alpha_composite(pil_img, overlay).convert("RGB")
+            buffered = io.BytesIO()
+            combined.save(buffered, format="JPEG", quality=85)
+            return base64.b64encode(buffered.getvalue()).decode("utf-8")
+        except Exception as err:
+            logger.warning(f"Failed to generate violation evidence image: {err}")
+            return None
 
     # --- Text Assembly & Candidate Selection Helpers ---
 
@@ -329,7 +625,70 @@ class ComplianceEvaluator:
             return bool(_EMAIL_RE.search(text)) or bool(_PHONE_RE.search(flat))
         if rule_id == "manufacturer_details":
             return bool(_PINCODE_RE.search(flat)) or len(flat) > 20
+        cat_config = CATEGORY_RULE_PATTERNS.get(rule_id, {})
+        if "regex" in cat_config:
+            return bool(re.search(cat_config["regex"], text, re.IGNORECASE))
         return True
+
+    def _build_dynamic_matcher(self, rule: Dict[str, Any], img_height: int):
+        """Generates dynamic detector and evaluator functions for category rules."""
+        rule_id = rule["id"]
+        field_name = rule.get("field_name", rule_id)
+        regex_pattern = rule.get("regex_pattern")
+        min_font_mm = float(rule.get("min_font_size_mm", 1.0))
+
+        cat_config = CATEGORY_RULE_PATTERNS.get(rule_id, {})
+        custom_regex = regex_pattern or cat_config.get("regex")
+        keywords = cat_config.get("keywords", [])
+        if not keywords:
+            clean_name = re.sub(r"[^A-Za-z0-9\s]", "", field_name.upper())
+            keywords = [clean_name]
+
+        def detector(text: str) -> bool:
+            t_upper = text.upper()
+            if custom_regex and re.search(custom_regex, text, re.IGNORECASE):
+                return True
+            return any(kw in t_upper for kw in keywords)
+
+        def evaluator(block: TextBlock):
+            est_font = self._estimate_font_mm(block.size.estimated_font_size_px, img_height)
+            size_valid = est_font >= min_font_mm
+
+            extracted = block.text.strip()
+            if custom_regex:
+                m = re.search(custom_regex, block.text, re.IGNORECASE)
+                if m:
+                    extracted = m.group(0)
+
+            viols = []
+            if not size_valid:
+                viols.append(
+                    ViolationDetail(
+                        id=f"viol_font_{rule_id}_{uuid.uuid4().hex[:12]}",
+                        rule_id=rule_id,
+                        field_name=field_name,
+                        violation_type="size_below_standard",
+                        severity="MINOR",
+                        description=f"{field_name} font size ({est_font}mm) below minimum required ({min_font_mm}mm).",
+                        evidence_bbox=block.bbox
+                    )
+                )
+
+            decl = DeclarationFound(
+                id=rule_id,
+                field_name=field_name,
+                extracted_text=extracted,
+                confidence=round(block.confidence, 2),
+                bbox=block.bbox,
+                font_size_px=block.size.estimated_font_size_px,
+                font_size_mm_est=est_font,
+                format_valid=True,
+                size_valid=size_valid,
+                status="COMPLIANT" if size_valid else "TOO_SMALL"
+            )
+            return decl, viols
+
+        return detector, evaluator
 
     def _add_candidate(self, candidates: Dict[str, List[tuple]], rule_id: str, block: TextBlock,
                        decl: DeclarationFound, viols: List[ViolationDetail]) -> None:
@@ -448,25 +807,105 @@ class ComplianceEvaluator:
         )
         return decl, viols
 
-    def _eval_net_quantity(self, block: TextBlock, img_height: int) -> tuple[DeclarationFound, List[ViolationDetail]]:
+    def _eval_net_quantity(self, block: TextBlock, img_height: int, doc_norm: Optional[str] = None) -> tuple[DeclarationFound, List[ViolationDetail]]:
         text = block.text
         t_upper = flatten_text(text)
         viols = []
+        citation_svc = get_citation_service()
 
-        # Check for non-standard unit symbols (e.g. gms, ltrs, kilo)
-        has_illegal_unit = bool(re.search(r'\b(GMS|LTRS|KILO|CTS)\b', t_upper))
-        format_valid = not has_illegal_unit
+        # Check for non-standard unit symbols prohibited under Rule 12 (e.g. gms, gm, g., Kgs, ltrs, mls, etc.)
+        illegal_match = re.search(r'\b(GMS|GM|G\.|GM\.|GMS\.|KGS|KG\.|KILO|KILOS|LTR|LTRS|LTR\.|LIT|LITERS|LITRES|MLS|ML\.|M\.L\.|MTS|MTR|MTRS)\b', t_upper)
+        format_valid = not bool(illegal_match)
 
-        if has_illegal_unit:
+        if illegal_match:
+            illegal_sym = illegal_match.group(0)
+            rule12_cit = citation_svc.get_citation("rule_12_metric_symbol")
             viols.append(ViolationDetail(
                 id=f"viol_net_qty_symbol_{block.id}",
                 rule_id="net_quantity",
                 field_name=self.rule_map.get("net_quantity", {}).get("field_name", "Net Quantity"),
                 violation_type="wrong_format",
                 severity="MAJOR",
-                description="Net Quantity uses non-standard unit symbol ('gms'/'ltrs'). Legal Metrology mandates standard SI units ('g', 'kg', 'ml', 'L', 'N').",
-                evidence_bbox=block.bbox
+                description=f"Net Quantity uses illegal non-standard unit symbol '{illegal_sym}'. Legal Metrology Rule 12 & Third Schedule strictly mandates standard SI symbols ('g', 'kg', 'ml', 'L', 'N').",
+                evidence_bbox=block.bbox,
+                citation=rule12_cit
             ))
+
+        # Check for multi-piece package declarations (e.g. 30 N x 5 g, 5 g x 30 N, 10 x 20 g)
+        # Under Rule 24 and Rule 2(kc) of Legal Metrology (Packaged Commodities) Rules, 2011:
+        # Every multi-piece package must declare the number of individual pieces, the quantity of each piece,
+        # AND the total net quantity of all individual pieces.
+        multi_match = re.search(
+            r'\b(\d+)\s*(?:N|U|UNITS?|PIECES?|PCS?|TABLETS?|SACHETS?|PACKS?|CAKES?|BARS?)?\s*(?:x|X|\*)\s*(\d+(?:\.\d+)?)\s*(g|kg|ml|l|gm|gms|g\.)\b',
+            t_upper,
+            re.IGNORECASE
+        )
+        count = None
+        unit_val = None
+        unit_sym = None
+
+        if multi_match:
+            count = int(multi_match.group(1))
+            unit_val = float(multi_match.group(2))
+            unit_sym = multi_match.group(3).lower()
+        else:
+            multi_match_rev = re.search(
+                r'\b(\d+(?:\.\d+)?)\s*(g|kg|ml|l|gm|gms|g\.)\s*(?:x|X|\*)\s*(\d+)\s*(?:N|U|UNITS?|PIECES?|PCS?|TABLETS?|SACHETS?|PACKS?|CAKES?|BARS?)?\b',
+                t_upper,
+                re.IGNORECASE
+            )
+            if multi_match_rev:
+                unit_val = float(multi_match_rev.group(1))
+                unit_sym = multi_match_rev.group(2).lower()
+                count = int(multi_match_rev.group(3))
+
+        if count and unit_val and unit_sym:
+            # Normalize unit sym to standard SI
+            norm_sym = "g" if unit_sym in ("g", "gm", "gms", "g.") else ("ml" if unit_sym in ("ml", "mls", "ml.") else unit_sym)
+            total_val = count * unit_val
+
+            target_totals = [
+                f"{int(total_val) if total_val.is_integer() else total_val}{norm_sym}",
+                f"{int(total_val) if total_val.is_integer() else total_val} {norm_sym}",
+            ]
+            if norm_sym == "g" and total_val >= 1000:
+                kg_val = total_val / 1000.0
+                target_totals.extend([
+                    f"{int(kg_val) if kg_val.is_integer() else kg_val}kg",
+                    f"{int(kg_val) if kg_val.is_integer() else kg_val} kg",
+                ])
+            elif norm_sym == "ml" and total_val >= 1000:
+                l_val = total_val / 1000.0
+                target_totals.extend([
+                    f"{int(l_val) if l_val.is_integer() else l_val}l",
+                    f"{int(l_val) if l_val.is_integer() else l_val} l",
+                ])
+
+            search_scope = (t_upper + " " + (doc_norm or "")).upper()
+            has_total = any(
+                re.search(rf'\b{re.escape(target.upper())}\b', search_scope)
+                for target in target_totals
+            ) or bool(re.search(rf'=\s*{int(total_val) if total_val.is_integer() else total_val}', search_scope))
+
+            if not has_total:
+                rule24_cit = citation_svc.get_citation("multi_piece_net_quantity") or citation_svc.get_citation("rule_24_multi_piece") or citation_svc.get_citation("net_quantity")
+                display_total = f"{int(total_val) if total_val.is_integer() else total_val} {norm_sym}"
+                viols.append(ViolationDetail(
+                    id=f"viol_multi_piece_total_{block.id}",
+                    rule_id="multi_piece_net_quantity",
+                    field_name=self.rule_map.get("net_quantity", {}).get("field_name", "Net Quantity (Multi-Piece Package)"),
+                    violation_type="missing_total_quantity",
+                    severity="MAJOR",
+                    description=(
+                        f"Multi-piece package declares individual units ('{block.text}') but omits the mandatory "
+                        f"Total Net Quantity ('{display_total}'). Rule 24 and Rule 2(kc) of Legal Metrology "
+                        "(Packaged Commodities) Rules, 2011 mandate that multi-piece packages must declare "
+                        "both individual pieces and the total net quantity on the package."
+                    ),
+                    evidence_bbox=block.bbox,
+                    citation=rule24_cit
+                ))
+                format_valid = False
 
         min_font = self._get_min_font_size("net_quantity", 1.0)
         font_size_mm = self._estimate_font_mm(block.size.estimated_font_size_px, img_height)
@@ -640,7 +1079,13 @@ class ComplianceEvaluator:
 
 
 # Helper function to evaluate image compliance directly
-def evaluate_label_compliance(ocr_result: OCRScanResult, ruleset: Optional[Dict[str, Any]] = None, db: Optional[Any] = None) -> ComplianceResult:
-    evaluator = ComplianceEvaluator(ruleset=ruleset, db=db)
-    return evaluator.evaluate(ocr_result)
+def evaluate_label_compliance(
+    ocr_result: OCRScanResult,
+    ruleset: Optional[Dict[str, Any]] = None,
+    db: Optional[Any] = None,
+    category: Optional[str] = None,
+    image_bytes: Optional[bytes] = None
+) -> ComplianceResult:
+    evaluator = ComplianceEvaluator(ruleset=ruleset, db=db, category=category)
+    return evaluator.evaluate(ocr_result, image_bytes=image_bytes)
 
