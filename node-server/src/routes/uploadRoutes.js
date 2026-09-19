@@ -1,7 +1,7 @@
-const uploadController = require("../controllers/uploadController");
+import * as uploadController from "../controllers/uploadController.js";
 
 async function uploadRoutes(fastify, options) {
   fastify.post("/raw", uploadController.uploadRawFile);
 }
 
-module.exports = uploadRoutes;
+export default uploadRoutes;

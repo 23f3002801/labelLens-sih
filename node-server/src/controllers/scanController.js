@@ -1,15 +1,14 @@
-const prisma = require("../config/db");
-const { createHash } = require("crypto");
-const { uploadBuffer } = require("../services/cloudinaryService");
-const {
+import prisma from "../config/db.js";
+import { createHash } from "crypto";
+import { uploadBuffer } from "../services/cloudinaryService.js";
+import {
   runOcr,
   evaluateOcrCompliance,
-  unwrapVideo,
   getCitations,
   searchCitations,
   getRules,
-} = require("../services/fastapiService");
-const scanCache = require("../utils/scanCache");
+} from "../services/fastapiService.js";
+import * as scanCache from "../utils/scanCache.js";
 
 /**
  * Split the multi-megabyte annotated-image base64 out of the FastAPI OCR
@@ -625,7 +624,7 @@ async function searchStatutoryCorpus(req, reply) {
   }
 }
 
-module.exports = {
+export {
   handlePhotoScan,
   handleVideoScan,
   getScanById,

@@ -1,7 +1,7 @@
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
-const prisma = require("../config/db");
-const { JWT_SECRET } = require("../middleware/auth");
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import prisma from "../config/db.js";
+import { JWT_SECRET } from "../middleware/auth.js";
 
 const VALID_ROLES = ["FIELD_INSPECTOR", "DISTRICT_OFFICER", "STATE_CONTROLLER", "ADMIN"];
 
@@ -255,7 +255,7 @@ async function updateProfile(req, reply) {
   }
 }
 
-module.exports = {
+export {
   register,
   login,
   getMe,

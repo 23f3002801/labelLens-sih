@@ -462,27 +462,7 @@ export async function uploadFromCamera(token?: string) {
 
 ### Environment Variables (`.env`)
 Create a `.env` file inside `node-server/`:
-
-```env
-PORT=3000
-HOST=0.0.0.0
-
-# NeonDB PostgreSQL Connection
-DATABASE_URL="postgresql://neondb_owner:npg_wcR4XjslHCA9@ep-silent-king-ayjzlz4b-pooler.c-5.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require&pgbouncer=true"
-DIRECT_URL="postgresql://neondb_owner:npg_wcR4XjslHCA9@ep-silent-king-ayjzlz4b.c-5.us-east-2.aws.neon.tech/neondb?sslmode=require"
-
-# Cloudinary CDN Credentials
-CLOUDINARY_CLOUD_NAME=upgtqlmf
-CLOUDINARY_API_KEY=648513193385482
-CLOUDINARY_API_SECRET=WTW6dtg2YqUCfYbVeLrH7cl8VUQ
-
-# JWT Authentication
-JWT_SECRET=labellens_jwt_super_secret_key_2026_secure
-JWT_EXPIRES_IN=7d
-
-# Internal FastAPI Compute Host
-FASTAPI_URL=http://127.0.0.1:8000
-```
+`see .env.example`
 
 ### Useful CLI Commands
 

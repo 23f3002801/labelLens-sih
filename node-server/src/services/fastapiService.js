@@ -199,7 +199,7 @@ async function getRules(category = "general") {
   return await response.json();
 }
 
-module.exports = {
+export {
   runOcr,
   runOcrBase64,
   evaluateOcrCompliance,

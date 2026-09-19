@@ -1,5 +1,5 @@
-const { randomUUID } = require("crypto");
-const cloudinary = require("../config/cloudinary");
+import { randomUUID } from "crypto";
+import cloudinary from "../config/cloudinary.js";
 
 /**
  * Upload an in-memory buffer to Cloudinary
@@ -38,6 +38,6 @@ function uploadBuffer(buffer, options = {}) {
   });
 }
 
-module.exports = {
+export {
   uploadBuffer,
 };
