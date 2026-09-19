@@ -174,13 +174,23 @@ function normalizeStatus(status) {
 }
 
 function normalizeInspectionSummary(item = {}) {
+  const annotatedImageUrl =
+    item.annotated_image_path ||
+    item.annotatedImagePath ||
+    (item.annotated_image_base64
+      ? (item.annotated_image_base64.startsWith("data:")
+          ? item.annotated_image_base64
+          : `data:image/jpeg;base64,${item.annotated_image_base64}`)
+      : null);
+
   return {
     id: item.scan_id ?? item.id ?? null,
     productName: item.productName || item.product_name || null,
     status: normalizeStatus(item.status),
-    imageUrl: item.image_path || item.image_url || null,
-    annotatedImagePath: item.annotated_image_path || null,
-    complianceScore: item.compliance_score ?? 0,
+    imageUrl: item.image_path || item.image_url || item.imageUrl || null,
+    annotatedImagePath: item.annotated_image_path || item.annotatedImagePath || null,
+    annotatedImageUrl,
+    complianceScore: item.compliance_score ?? item.complianceScore ?? 0,
     violationsCount:
       item.violations_count ??
       (Array.isArray(item.violations) ? item.violations.length : item.violations ?? 0),
@@ -208,13 +218,23 @@ function normalizeInspectionDetail(detail = {}) {
       )
     : [];
 
+  const annotatedImageUrl =
+    detail.annotated_image_path ||
+    detail.annotatedImagePath ||
+    (detail.annotated_image_base64
+      ? (detail.annotated_image_base64.startsWith("data:")
+          ? detail.annotated_image_base64
+          : `data:image/jpeg;base64,${detail.annotated_image_base64}`)
+      : null);
+
   return {
     ...normalizeInspectionSummary(detail),
-    overallResult: detail.overall_result ?? null,
-    ocrResult: detail.ocr_result ?? null,
-    extractedDeclarations: detail.extracted_declarations ?? [],
-    annotatedImageBase64: detail.annotated_image_base64 ?? null,
-    annotatedImagePath: detail.annotated_image_path ?? null,
+    overallResult: detail.overall_result ?? detail.overallResult ?? null,
+    ocrResult: detail.ocr_result ?? detail.ocrResult ?? null,
+    extractedDeclarations: detail.extracted_declarations ?? detail.extractedDeclarations ?? [],
+    annotatedImageBase64: detail.annotated_image_base64 ?? detail.annotatedImageBase64 ?? null,
+    annotatedImagePath: detail.annotated_image_path ?? detail.annotatedImagePath ?? null,
+    annotatedImageUrl,
     inspector: detail.inspector ?? null,
     violations,
   };
