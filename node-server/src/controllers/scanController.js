@@ -74,34 +74,8 @@ const ALLOWED_VIDEO_MIMES = [
  * 5. Persist Inspection and Violation records in PostgreSQL via Prisma.
  * 6. Return comprehensive response.
  */
-async function handlePhotoScan(req, reply) {
+async function processPhotoScan({ inspectionId, imageBuffer, filename, category = "general", log }) {
   try {
-    const data = await req.file();
-    if (!data) {
-      return reply.code(400).send({
-        error: "Bad Request",
-        message: "Image file is required",
-      });
-    }
-
-    if (!ALLOWED_IMAGE_MIMES.includes(data.mimetype)) {
-      return reply.code(400).send({
-        error: "Bad Request",
-        message: `Invalid file type '${data.mimetype}'. Supported: JPG, PNG, WEBP, GIF, BMP`,
-      });
-    }
-
-    const imageBuffer = await data.toBuffer();
-    if (imageBuffer.length === 0) {
-      return reply.code(400).send({
-        error: "Bad Request",
-        message: "Uploaded image file is empty",
-      });
-    }
-
-    const filename = data.filename || "label.jpg";
-    const inspectorId = req.user?.id || null;
-    const category = req.query?.category || data.fields?.category?.value || "general";
 
     // Identical images previously scanned (within the cache TTL) skip the
     // expensive Cloudinary + OCR + compliance round-trips entirely.
@@ -114,29 +88,26 @@ async function handlePhotoScan(req, reply) {
     let annotatedUrl;
 
     if (cachedPipeline) {
-      req.log.info(`Scan cache hit for image ${imageHash.slice(0, 12)}…`);
+      log.info(`Scan cache hit for image ${imageHash.slice(0, 12)}…`);
       ({ cloudinaryResult, ocrResult, complianceResult, annotatedUrl } = cachedPipeline);
     } else {
       // Concurrent: Upload to Cloudinary & run OCR on FastAPI
       const [upload, ocr] = await Promise.all([
         uploadBuffer(imageBuffer, { filename }).catch((err) => {
-          req.log.warn(`Cloudinary upload warning: ${err.message}`);
+          log.warn(`Cloudinary upload warning: ${err.message}`);
           return { secure_url: null, public_id: null };
         }),
         runOcr(imageBuffer, filename),
       ]);
 
       if (!ocr || !ocr.success) {
-        return reply.code(502).send({
-          error: "Bad Gateway",
-          message: `OCR extraction failed: ${ocr?.error || "Unknown error"}`,
-        });
+        throw new Error(`OCR extraction failed: ${ocr?.error || "Unknown error"}`);
       }
 
       cloudinaryResult = upload;
       complianceResult = await evaluateOcrCompliance(ocr, category);
       const { annotatedBase64, ocrSlim } = extractAnnotatedImage(ocr);
-      annotatedUrl = await hostAnnotatedImage(annotatedBase64, filename, req.log);
+      annotatedUrl = await hostAnnotatedImage(annotatedBase64, filename, log);
       ocrResult = ocrSlim;
 
       scanCache.set(imageHash, { cloudinaryResult, ocrResult, complianceResult, annotatedUrl });
@@ -158,30 +129,15 @@ async function handlePhotoScan(req, reply) {
       status: d.status,
     }));
 
-    // Upload annotated bounding-box image to Cloudinary CDN
-    let annotatedCloudinaryUrl = null;
-    const annotatedB64 = ocrResult.annotated_image_base64 || complianceResult.annotated_image_base64;
-    if (annotatedB64) {
-      try {
-        const cleanB64 = annotatedB64.replace(/^data:image\/[a-z]+;base64,/, "");
-        const annBuffer = Buffer.from(cleanB64, "base64");
-        const annRes = await uploadBuffer(annBuffer, {
-          filename: `annotated_${filename}`,
-          folder: "labellens/annotated",
-        });
-        annotatedCloudinaryUrl = annRes.secure_url;
-      } catch (annErr) {
-        req.log.warn(`Cloudinary annotated upload warning: ${annErr.message}`);
-      }
-    }
-
-    // Create Inspection record in NeonDB via Prisma
-    const inspection = await prisma.inspection.create({
+    const inspection = await prisma.inspection.update({
+      where: { id: inspectionId },
       data: {
-        inspectorId,
-        imagePath: cloudinaryResult.secure_url || null,
-        annotatedImagePath: annotatedUrl || annotatedCloudinaryUrl || null,
-        rawOcrOutput: ocrResult,
+        imagePath: cloudinaryResult.secure_url,
+        annotatedImagePath: annotatedUrl,
+        rawOcrOutput: {
+          ...ocrResult,
+          category,
+        },
         extractedDeclarations,
         complianceScore: complianceResult.compliance_score || 0.0,
         status: overallStatus,
@@ -211,64 +167,53 @@ async function handlePhotoScan(req, reply) {
       });
     }
 
-    const violations = await prisma.violation.findMany({
-      where: { inspectionId: inspection.id },
+  } catch (error) {
+    log.error(error);
+    await prisma.inspection.update({
+      where: { id: inspectionId },
+      data: { status: "FAILED", rawOcrOutput: { source: "image", error: error.message || "Image processing failed" } },
+    }).catch((updateError) => log.error(updateError));
+  }
+}
+
+async function handlePhotoScan(req, reply) {
+  try {
+    const data = await req.file();
+    if (!data) {
+      return reply.code(400).send({ error: "Bad Request", message: "Image file is required" });
+    }
+    if (!ALLOWED_IMAGE_MIMES.includes(data.mimetype)) {
+      return reply.code(400).send({
+        error: "Bad Request",
+        message: `Invalid file type '${data.mimetype}'. Supported: JPG, PNG, WEBP, GIF, BMP`,
+      });
+    }
+    const imageBuffer = await data.toBuffer();
+    if (imageBuffer.length === 0) {
+      return reply.code(400).send({ error: "Bad Request", message: "Uploaded image file is empty" });
+    }
+
+    const filename = data.filename || "label.jpg";
+    const category = req.query?.category || data.fields?.category?.value || "general";
+    const inspection = await prisma.inspection.create({
+      data: {
+        inspectorId: req.user?.id || null,
+        status: "PROCESSING",
+        rawOcrOutput: { source: "image", filename, category },
+      },
     });
 
-    // Map violations with statutory citation and package element discrepancy details.
-    // Keyed by rule_id (primary) AND field_name (fallback) so the lookup is robust
-    // even when ruleCode was stored as a fallback value like "RULE_VIOLATION".
-    const extraMap = {};
-    (complianceResult.summary?.whats_wrong || []).forEach((w) => {
-      const payload = {
-        citation: w.citation || null,
-        detected_on_package: w.detected_on_package || null,
-        expected_on_package: w.expected_on_package || null,
-        package_element: w.package_element || null,
-      };
-      if (w.rule_id) extraMap[w.rule_id] = payload;
-      // Secondary fallback: key by field_name so lookup works if rule_id was missing
-      if (w.field_name && !extraMap[w.field_name]) extraMap[w.field_name] = payload;
-    });
-
-    return reply.code(200).send({
+    // Deliberately do not await: the client can move to Inspections as soon as
+    // its upload has finished, while OCR and compliance run in the background.
+    void processPhotoScan({ inspectionId: inspection.id, imageBuffer, filename, category, log: req.log });
+    return reply.code(202).send({
       scan_id: inspection.id,
       status: inspection.status,
-      image_path: inspection.imagePath,
-      annotated_image_path: inspection.annotatedImagePath || annotatedUrl || null,
-      annotated_image_base64: ocrResult.annotated_image_base64 || complianceResult.annotated_image_base64 || null,
-      cloudinary_public_id: cloudinaryResult.public_id,
       created_at: inspection.createdAt,
-      compliance_score: inspection.complianceScore,
-      overall_result: complianceResult.overall_result,
-      category: category,
-      ocr_result: inspection.rawOcrOutput,
-      extracted_declarations: inspection.extractedDeclarations,
-      missing_declarations: complianceResult.summary?.whats_missing || [],
-      violations: violations.map((v) => {
-        // Try ruleCode first, then parse field name from stored title as last resort
-        const titleField = v.title?.split(" - ")[0];
-        const extra = extraMap[v.ruleCode] || extraMap[titleField] || {};
-        return {
-          id: v.id,
-          rule_code: v.ruleCode,
-          severity: v.severity,
-          title: v.title,
-          description: v.description,
-          evidence_bbox: v.evidenceBbox,
-          citation: extra.citation || null,
-          detected_on_package: extra.detected_on_package || null,
-          expected_on_package: extra.expected_on_package || null,
-          package_element: extra.package_element || null,
-        };
-      }),
     });
   } catch (error) {
     req.log.error(error);
-    return reply.code(500).send({
-      error: "Internal Server Error",
-      message: error.message || "An error occurred while processing photo scan",
-    });
+    return reply.code(500).send({ error: "Internal Server Error", message: error.message || "Failed to queue photo scan" });
   }
 }
 
@@ -281,7 +226,7 @@ async function handlePhotoScan(req, reply) {
  * 5. Run OCR & compliance evaluation on key extracted frame(s).
  * 6. Save consolidated scan record with violations to NeonDB via Prisma.
  */
-async function handleVideoScan(req, reply) {
+async function processVideoScanLegacy(req, reply) {
   try {
     const data = await req.file();
     if (!data) {
@@ -464,6 +409,113 @@ async function handleVideoScan(req, reply) {
 /**
  * Get scan details by ID matching the legacy FastAPI /api/v1/uploads/{scan_id} format
  */
+async function processVideoScan({ inspectionId, videoBuffer, filename, log }) {
+  try {
+    const unwrapResponse = await unwrapVideo(videoBuffer, filename);
+    if (!unwrapResponse.success || !unwrapResponse.frames?.length) {
+      throw new Error("No label faces detected in the video");
+    }
+
+    const uploadedFrames = await Promise.all(
+      unwrapResponse.frames.map(async (frame, index) => {
+        const buffer = Buffer.from(frame.image_base64, "base64");
+        const cloudRes = await uploadBuffer(buffer, {
+          filename: `video_frame_${index}_${frame.filename || "label.jpg"}`,
+        }).catch((error) => {
+          log.warn(`Video frame upload warning: ${error.message}`);
+          return { secure_url: null, public_id: null };
+        });
+        return {
+          frame_index: frame.frame_index ?? index,
+          filename: frame.filename || "video_frame.jpg",
+          image_url: cloudRes.secure_url,
+          cloudinary_public_id: cloudRes.public_id,
+          buffer,
+        };
+      })
+    );
+
+    const primaryFrame = uploadedFrames[0];
+    const fullOcrResult = await runOcr(primaryFrame.buffer, primaryFrame.filename);
+    if (!fullOcrResult?.success) throw new Error("OCR extraction failed for video frame");
+    const complianceResult = await evaluateOcrCompliance(fullOcrResult);
+    const { annotatedBase64, ocrSlim } = extractAnnotatedImage(fullOcrResult);
+    const annotatedUrl = await hostAnnotatedImage(annotatedBase64, primaryFrame.filename, log);
+    const extractedDeclarations = (complianceResult.summary?.what_was_found || []).map((d) => ({
+      id: d.id,
+      field_name: d.field_name,
+      extracted_text: d.extracted_text,
+      parsed_value: d.parsed_value,
+      confidence: d.confidence,
+      font_size_mm_est: d.font_size_mm_est,
+      status: d.status,
+    }));
+    const overallStatus = complianceResult.overall_result === "PASS" ? "COMPLIANT" : "NON_COMPLIANT";
+
+    await prisma.inspection.update({
+      where: { id: inspectionId },
+      data: {
+        imagePath: primaryFrame.image_url,
+        annotatedImagePath: annotatedUrl,
+        rawOcrOutput: {
+          ...ocrSlim,
+          video_frames: uploadedFrames.map((frame) => ({
+            frame_index: frame.frame_index,
+            image_url: frame.image_url,
+            cloudinary_public_id: frame.cloudinary_public_id,
+          })),
+        },
+        extractedDeclarations,
+        complianceScore: complianceResult.compliance_score || 0,
+        status: overallStatus,
+      },
+    });
+
+    const violationsData = (complianceResult.summary?.whats_wrong || []).map((v) => ({
+      inspectionId,
+      ruleCode: v.rule_id || "RULE_VIOLATION",
+      severity: v.severity || "MAJOR",
+      title: `${v.field_name || "Declaration"} - ${(v.violation_type || "VIOLATION").toUpperCase()}`,
+      description: v.description || "",
+      evidenceBbox: v.evidence_bbox || null,
+    }));
+    if (violationsData.length) await prisma.violation.createMany({ data: violationsData });
+  } catch (error) {
+    log.error(error);
+    await prisma.inspection.update({
+      where: { id: inspectionId },
+      data: { status: "FAILED", rawOcrOutput: { source: "video", error: error.message || "Video processing failed" } },
+    })
+      .catch((updateError) => log.error(updateError));
+  }
+}
+
+async function handleVideoScan(req, reply) {
+  try {
+    const data = await req.file();
+    if (!data) return reply.code(400).send({ error: "Bad Request", message: "Video file is required" });
+    if (!ALLOWED_VIDEO_MIMES.includes(data.mimetype)) {
+      return reply.code(400).send({ error: "Bad Request", message: "Unsupported video type. Use MP4, MOV, AVI, MKV or WEBM." });
+    }
+    const videoBuffer = await data.toBuffer();
+    if (!videoBuffer.length) return reply.code(400).send({ error: "Bad Request", message: "Uploaded video file is empty" });
+
+    const filename = data.filename || "video.mp4";
+    const inspection = await prisma.inspection.create({
+      data: {
+        inspectorId: req.user?.id || null,
+        status: "PROCESSING",
+        rawOcrOutput: { source: "video", filename },
+      },
+    });
+    void processVideoScan({ inspectionId: inspection.id, videoBuffer, filename, log: req.log });
+    return reply.code(202).send({ scan_id: inspection.id, status: inspection.status, created_at: inspection.createdAt });
+  } catch (error) {
+    req.log.error(error);
+    return reply.code(500).send({ error: "Internal Server Error", message: error.message || "Failed to queue video scan" });
+  }
+}
+
 async function getScanById(req, reply) {
   try {
     const { scanId } = req.params;

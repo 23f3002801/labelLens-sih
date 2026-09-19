@@ -1,187 +1,68 @@
-import { useState, useRef } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp'];
+const VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska', 'video/webm'];
+const MAX_FILES = 10;
+
 export default function NewScan() {
   const navigate = useNavigate();
-  const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null);
+  const inputRef = useRef(null);
+  const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
   const [dragActive, setDragActive] = useState(false);
-  const fileInputRef = useRef(null);
 
-  const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp'];
-
-  const handleFile = (selectedFile) => {
+  const addFiles = (incoming) => {
     setError('');
-    if (!selectedFile) return;
-    if (!ACCEPTED_IMAGE_TYPES.includes(selectedFile.type)) {
-      setError('Unsupported file type. Please upload a JPG, PNG, WEBP, GIF or BMP image.');
-      return;
-    }
-    if (selectedFile.size > 10 * 1024 * 1024) {
-      setError('File must be under 10MB');
-      return;
-    }
-    setFile(selectedFile);
-    setPreview(URL.createObjectURL(selectedFile));
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setDragActive(false);
-    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+    const next = Array.from(incoming || []);
+    if (!next.length) return;
+    if (files.length + next.length > MAX_FILES) return setError(`You can upload up to ${MAX_FILES} files in one inspection.`);
+    const invalid = next.find((file) => !IMAGE_TYPES.includes(file.type) && !VIDEO_TYPES.includes(file.type));
+    if (invalid) return setError('Unsupported file. Use JPG, PNG, WEBP, GIF, BMP, MP4, MOV, AVI, MKV or WEBM.');
+    const tooLarge = next.find((file) => file.size > (VIDEO_TYPES.includes(file.type) ? 100 : 10) * 1024 * 1024);
+    if (tooLarge) return setError(`${tooLarge.name} exceeds the upload size limit.`);
+    setFiles((current) => [...current, ...next]);
   };
 
   const handleUpload = async () => {
-    if (!file) return;
-    setUploading(true);
-    setProgress(0);
-    setError('');
-
+    if (!files.length) return;
+    setUploading(true); setProgress(0); setError('');
     try {
-      // Real upload progress comes from the api layer's XHR progress events.
-      const result = await api.uploadImage(file, setProgress);
-      setProgress(100);
-
-      const scanId = result?.scan_id || result?.scanId || result?.id;
-      if (!scanId) {
-        throw new Error('Scan completed but no scan ID was returned');
+      // This is triggered by the user's Upload click, which browsers require
+      // before they will show the notification-permission prompt.
+      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+        await Notification.requestPermission();
       }
-      navigate(`/dashboard/inspections/${scanId}`);
+      let completed = 0;
+      const scans = await Promise.all(files.map(async (file) => {
+        const upload = VIDEO_TYPES.includes(file.type) ? api.uploadVideo : api.uploadImage;
+        const result = await upload(file, (fileProgress) => setProgress(Math.round(((completed + fileProgress / 100) / files.length) * 100)));
+        completed += 1;
+        setProgress(Math.round((completed / files.length) * 100));
+        return result;
+      }));
+      api.trackPendingScans(scans);
+      navigate('/dashboard/inspections', { state: { queued: scans.length } });
     } catch (err) {
-      setError(err.message || 'Upload failed');
+      setError(err.message || 'Upload failed. Please try again.');
       setUploading(false);
     }
   };
 
-  return (
-    <DashboardLayout>
-      <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
-        
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-on-surface mb-2">New Compliance Scan</h1>
-          <p className="text-on-surface-variant">Upload packaging artwork for instant Legal Metrology verification</p>
-        </div>
-
-        {/* Upload Area */}
-        <div className="bg-surface-container-lowest rounded-2xl p-8 shadow-sm border border-outline-variant/30">
-          {!preview ? (
-            <div
-              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-              onDragLeave={() => setDragActive(false)}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-2xl p-16 text-center cursor-pointer transition-all ${
-                dragActive ? 'border-primary bg-primary/5 scale-[1.02]' : 'border-outline-variant/40 hover:border-primary/60 hover:bg-primary/5'
-              }`}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif,image/bmp"
-                className="hidden"
-                onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])}
-              />
-              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-primary-container/20 flex items-center justify-center mx-auto mb-6">
-                <span className="material-symbols-outlined text-primary text-[40px]">cloud_upload</span>
-              </div>
-              <h3 className="text-xl font-semibold text-on-surface mb-2">Drop your packaging image here</h3>
-              <p className="text-on-surface-variant mb-6">or click to browse from your device</p>
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-surface-container-low rounded-lg text-sm text-on-surface-variant">
-                <span className="material-symbols-outlined text-[16px]">info</span>
-                Supports JPG, PNG, WEBP, GIF, BMP • Max 10MB
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              <div className="relative rounded-2xl overflow-hidden bg-surface-container-low">
-                <img src={preview} alt="Preview" className="w-full h-96 object-contain" />
-                <button
-                  onClick={() => { setFile(null); setPreview(null); }}
-                  className="absolute top-4 right-4 w-10 h-10 rounded-full bg-surface-container-lowest/90 backdrop-blur flex items-center justify-center text-on-surface hover:bg-error hover:text-white transition-all shadow-lg"
-                >
-                  <span className="material-symbols-outlined text-[20px]">close</span>
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between p-4 bg-surface-container-low rounded-xl">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                    <span className="material-symbols-outlined text-primary text-[24px]">image</span>
-                  </div>
-                  <div>
-                    <p className="font-medium text-on-surface">{file.name}</p>
-                    <p className="text-sm text-on-surface-variant">{(file.size / 1024).toFixed(1)} KB</p>
-                  </div>
-                </div>
-                {uploading && (
-                  <div className="flex items-center gap-3">
-                    <div className="w-32 h-2 bg-surface-container rounded-full overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-primary to-primary-container transition-all duration-300" style={{ width: `${progress}%` }}></div>
-                    </div>
-                    <span className="text-sm font-medium text-on-surface">{progress}%</span>
-                  </div>
-                )}
-              </div>
-
-              {error && (
-                <div className="p-4 rounded-xl bg-error-container border border-error/30 flex items-start gap-2">
-                  <span className="material-symbols-outlined text-error text-[20px]">error</span>
-                  <p className="text-sm text-on-error-container">{error}</p>
-                </div>
-              )}
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => { setFile(null); setPreview(null); }}
-                  disabled={uploading}
-                  className="flex-1 px-6 py-3 rounded-xl bg-surface-container-low text-on-surface font-medium hover:bg-surface-container transition-all disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleUpload}
-                  disabled={uploading}
-                  className="flex-1 px-6 py-3 rounded-xl bg-gradient-to-r from-primary to-primary-container text-white font-semibold shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-2"
-                >
-                  {uploading ? (
-                    <>
-                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                      Analyzing...
-                    </>
-                  ) : (
-                    <>
-                      <span className="material-symbols-outlined text-[20px]">auto_awesome</span>
-                      Start Compliance Scan
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Info Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[
-            { icon: 'speed', title: 'Fast Analysis', desc: 'Results in under 2 seconds' },
-            { icon: 'verified', title: '100% Accurate', desc: '99.8% detection rate' },
-            { icon: 'security', title: 'Secure', desc: 'End-to-end encrypted' }
-          ].map((item, idx) => (
-            <div key={idx} className="p-5 rounded-xl bg-surface-container-lowest border border-outline-variant/30">
-              <span className="material-symbols-outlined text-primary text-[24px] mb-2 block">{item.icon}</span>
-              <h4 className="font-semibold text-on-surface mb-1">{item.title}</h4>
-              <p className="text-sm text-on-surface-variant">{item.desc}</p>
-            </div>
-          ))}
-        </div>
-
+  return <DashboardLayout><div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
+    <div><h1 className="text-3xl font-bold text-on-surface mb-2">New Product Inspection</h1><p className="text-on-surface-variant">Add photos of every product face, or a 360° video. Results will appear in Inspections when ready.</p></div>
+    <div className="bg-surface-container-lowest rounded-2xl p-8 shadow-sm border border-outline-variant/30">
+      <div onDragOver={(event) => { event.preventDefault(); setDragActive(true); }} onDragLeave={() => setDragActive(false)} onDrop={(event) => { event.preventDefault(); setDragActive(false); addFiles(event.dataTransfer.files); }} onClick={() => !uploading && inputRef.current?.click()} className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${dragActive ? 'border-primary bg-primary/5' : 'border-outline-variant/40 hover:border-primary/60 hover:bg-primary/5'} ${uploading ? 'opacity-60 cursor-wait' : ''}`}>
+        <input ref={inputRef} type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm" className="hidden" onChange={(event) => { addFiles(event.target.files); event.target.value = ''; }} />
+        <span className="material-symbols-outlined text-primary text-[40px]">add_photo_alternate</span><h3 className="text-xl font-semibold text-on-surface mt-3">Upload product faces or a product video</h3><p className="text-on-surface-variant mt-2">Drop files here or click to browse</p><p className="text-sm text-on-surface-variant mt-3">Up to 10 files · Images up to 10 MB · Videos up to 100 MB</p>
       </div>
-    </DashboardLayout>
-  );
+      {files.length > 0 && <div className="mt-6 space-y-3"><div className="flex items-center justify-between"><h3 className="font-semibold text-on-surface">Selected files ({files.length}/{MAX_FILES})</h3>{uploading && <span className="text-sm font-medium text-primary">Uploading {progress}%</span>}</div>{files.map((file, index) => { const isVideo = VIDEO_TYPES.includes(file.type); return <div key={`${file.name}-${index}`} className="flex items-center gap-3 p-3 rounded-xl bg-surface-container-low"><div className="w-11 h-11 rounded-lg bg-primary/10 flex items-center justify-center"><span className="material-symbols-outlined text-primary">{isVideo ? 'movie' : 'image'}</span></div><div className="min-w-0 flex-1"><p className="font-medium text-on-surface truncate">{file.name}</p><p className="text-xs text-on-surface-variant">{isVideo ? 'Product video' : 'Product face image'} · {(file.size / 1024 / 1024).toFixed(1)} MB</p></div><button type="button" disabled={uploading} onClick={() => setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="p-2 text-on-surface-variant hover:text-error disabled:opacity-50"><span className="material-symbols-outlined">close</span></button></div>; })}{uploading && <div className="h-2 bg-surface-container rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-primary to-primary-container transition-all" style={{ width: `${progress}%` }} /></div>}</div>}
+      {error && <div className="mt-5 p-4 rounded-xl bg-error-container border border-error/30 text-sm text-on-error-container">{error}</div>}
+      <div className="flex gap-3 mt-6"><button type="button" disabled={uploading || !files.length} onClick={() => setFiles([])} className="flex-1 px-6 py-3 rounded-xl bg-surface-container-low text-on-surface font-medium disabled:opacity-50">Clear</button><button type="button" disabled={uploading || !files.length} onClick={handleUpload} className="flex-1 px-6 py-3 rounded-xl bg-gradient-to-r from-primary to-primary-container text-white font-semibold disabled:opacity-50 flex justify-center items-center gap-2">{uploading ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Uploading…</> : <><span className="material-symbols-outlined">cloud_upload</span> Upload & inspect</>}</button></div>
+    </div>
+  </div></DashboardLayout>;
 }

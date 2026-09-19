@@ -17,8 +17,11 @@ const CACHE_TTL = {
   inspection: 60_000, // single inspection detail (immutable once scanned)
 };
 
+const PENDING_SCANS_KEY = "almac_pending_scans";
+
 const cache = new Map(); // key -> { expires, data, inflight }
 const listeners = new Map(); // key -> Set<callback>
+let pendingScanPoll = null;
 
 function subscribe(key, callback) {
   if (!listeners.has(key)) listeners.set(key, new Set());
@@ -170,7 +173,8 @@ async function request(path, { method = "GET", body, formData, auth = true } = {
 // Field normalization
 // ---------------------------------------------------------------------------
 function normalizeStatus(status) {
-  return String(status || "").toLowerCase();
+  const normalized = String(status || "").toLowerCase();
+  return normalized === "processing" ? "pending" : normalized;
 }
 
 function normalizeInspectionSummary(item = {}) {
@@ -444,6 +448,80 @@ const api = {
         package_element: v.package_element,
       })),
     };
+  },
+
+  uploadVideo: (file, onProgress) =>
+    new Promise((resolve, reject) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${API_BASE_URL}/video/frames`);
+      const token = api.getToken();
+      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+      xhr.onload = () => {
+        let data = null;
+        try { data = JSON.parse(xhr.responseText); } catch { data = null; }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          cacheScanResult(data);
+          resolve(data);
+        } else {
+          reject(new Error(data?.message || `Video scan failed with status ${xhr.status}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Cannot reach the server. Make sure the backend is running."));
+      xhr.send(formData);
+    }),
+
+  trackPendingScans: (scans) => {
+    const ids = scans.map((scan) => scan?.scan_id ?? scan?.scanId ?? scan?.id).filter(Boolean);
+    const previous = api.getPendingScans();
+    localStorage.setItem(PENDING_SCANS_KEY, JSON.stringify([...new Set([...previous, ...ids])]));
+    markInspectionsStale();
+  },
+
+  getPendingScans: () => {
+    try {
+      const value = JSON.parse(localStorage.getItem(PENDING_SCANS_KEY) || "[]");
+      return Array.isArray(value) ? value.filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  pollPendingScans: async () => {
+    if (pendingScanPoll) return pendingScanPoll;
+    pendingScanPoll = (async () => {
+    const ids = api.getPendingScans();
+    if (!ids.length) return [];
+    const ready = [];
+    const stillPending = [];
+    await Promise.all(ids.map(async (id) => {
+      try {
+        const scan = normalizeInspectionDetail(await request(`/uploads/${id}`));
+        if (scan.status === "pending") stillPending.push(id);
+        else {
+          ready.push(scan);
+          cacheSet(`/uploads/${id}`, scan, CACHE_TTL.inspection);
+        }
+      } catch {
+        stillPending.push(id);
+      }
+    }));
+    localStorage.setItem(PENDING_SCANS_KEY, JSON.stringify(stillPending));
+    if (ready.length) {
+      markInspectionsStale();
+      window.dispatchEvent(new CustomEvent("almac:scan-results-ready", { detail: ready }));
+    }
+    return ready;
+    })();
+    try {
+      return await pendingScanPoll;
+    } finally {
+      pendingScanPoll = null;
+    }
   },
 
   getInspections: (page = 1, limit = 20) => {

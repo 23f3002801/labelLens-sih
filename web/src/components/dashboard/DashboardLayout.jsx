@@ -8,6 +8,8 @@ export default function DashboardLayout({ children }) {
   const navigate = useNavigate();
   const [user, setUser] = useState(api.getUser());
   const [lineStyle, setLineStyle] = useState({ top: 0, height: 0 });
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   const handleLogout = () => {
     api.removeToken();
@@ -56,6 +58,21 @@ export default function DashboardLayout({ children }) {
       }, 50);
     }
   }, [location.pathname]);
+
+  useEffect(() => {
+    const handleReady = (event) => {
+      const ready = event.detail || [];
+      if (!ready.length) return;
+      setNotifications((current) => [...ready.map((scan) => ({ id: scan.id, status: scan.status })), ...current]);
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        ready.forEach((scan) => new Notification('Inspection result is ready', { body: `Scan ${scan.id.slice(0, 8)} is ${scan.status.replace('_', ' ')}.` }));
+      }
+    };
+    window.addEventListener('almac:scan-results-ready', handleReady);
+    const timer = window.setInterval(() => { api.pollPendingScans(); }, 4000);
+    api.pollPendingScans();
+    return () => { window.removeEventListener('almac:scan-results-ready', handleReady); window.clearInterval(timer); };
+  }, []);
 
   const displayRole = user?.role?.replace('_', ' ') || 'Inspector';
 
@@ -141,10 +158,13 @@ export default function DashboardLayout({ children }) {
               <span className="material-symbols-outlined text-primary text-[18px]">verified_user</span>
               <span className="font-bold">Engine online</span>
             </div>
-            <button className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-slate-200 transition-all relative">
+            <div className="relative">
+            <button onClick={() => setNotificationsOpen((open) => !open)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-slate-200 transition-all relative" aria-label="Inspection notifications">
               <span className="material-symbols-outlined text-[20px]">notifications</span>
-              <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-white"></span>
+              {notifications.length > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-white"></span>}
             </button>
+            {notificationsOpen && <div className="absolute right-0 top-12 w-80 rounded-xl bg-white shadow-xl border border-slate-200 p-3 z-50"><div className="flex justify-between items-center mb-2"><p className="font-semibold text-slate-900">Notifications</p><button onClick={() => setNotifications([])} className="text-xs text-primary">Clear</button></div>{notifications.length ? notifications.map((notice, index) => <Link key={`${notice.id}-${index}`} to={`/dashboard/inspections/${notice.id}`} onClick={() => setNotificationsOpen(false)} className="block p-3 rounded-lg hover:bg-slate-50 text-sm text-slate-700">Inspection result is ready<br /><span className="text-xs text-slate-500 capitalize">{notice.status.replace('_', ' ')}</span></Link>) : <p className="p-3 text-sm text-slate-500">No new results.</p>}</div>}
+            </div>
             <button className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-slate-200 transition-all">
               <span className="material-symbols-outlined text-[20px]">help</span>
             </button>
