@@ -93,12 +93,14 @@ model Violation {
 
 model ComplianceRule {
   id             String   @id @db.VarChar(50)
+  category       String   @default("base") @db.VarChar(50)
   fieldName      String   @map("field_name") @db.VarChar(100)
   description    String?  @db.VarChar(255)
   required       Boolean  @default(true)
   expectedFormat String?  @map("expected_format") @db.VarChar(255)
   minFontSizeMm  Float    @default(1.0) @map("min_font_size_mm")
   regexPattern   String?  @map("regex_pattern") @db.VarChar(255)
+  detectionType  String   @default("text") @map("detection_type") @db.VarChar(50)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamp(6)
 
   @@map("compliance_rules")

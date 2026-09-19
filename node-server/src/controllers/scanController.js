@@ -4,10 +4,13 @@ import { uploadBuffer } from "../services/cloudinaryService.js";
 import {
   runOcr,
   evaluateOcrCompliance,
+  evaluateProductCompliance,
   getCitations,
   searchCitations,
   getRules,
+  unwrapVideo,
 } from "../services/fastapiService.js";
+import { isMaskScanEnabled } from "../utils/scanFlags.js";
 import * as scanCache from "../utils/scanCache.js";
 
 /**
@@ -47,6 +50,50 @@ async function hostAnnotatedImage(annotatedBase64, filename, log) {
     log.warn(`Annotated image upload failed: ${err.message}`);
     return null;
   }
+}
+
+function aggregateProductFaceResults(faceResults, productResult) {
+  const declarations = productResult.summary?.what_was_found || [];
+  const violations = productResult.summary?.whats_wrong || [];
+  const faceImages = faceResults.map((face, index) => {
+    const faceIndex = face.faceIndex ?? index;
+    return {
+      face_index: faceIndex,
+      filename: face.filename,
+      image_url: face.cloudinaryResult.secure_url || null,
+      annotated_image_path: face.annotatedUrl || null,
+      ocr: face.ocrResult,
+      compliance_score: Number(productResult.compliance_score) || 0,
+      overall_result: productResult.overall_result || "FAIL",
+      extracted_declarations: declarations
+        .filter((declaration) => (declaration.face_index ?? 0) === faceIndex),
+      violations: violations
+        .filter((violation) => violation.face_index == null || violation.face_index === faceIndex),
+    };
+  });
+
+  return {
+    faceImages,
+    declarations,
+    violations,
+    complianceScore: Number(productResult.compliance_score) || 0,
+    overallStatus: productResult.overall_result === "PASS" ? "COMPLIANT" : "NON_COMPLIANT",
+  };
+}
+
+function violationRows(inspectionId, violations) {
+  return violations.map((violation) => ({
+    inspectionId,
+    ruleCode: violation.rule_id || "RULE_VIOLATION",
+    severity: violation.severity || "MAJOR",
+    title: `${violation.face_index != null ? `Face ${violation.face_index + 1}: ` : ""}${violation.field_name || "Declaration"} - ${(violation.violation_type || "VIOLATION").toUpperCase()}`,
+    description: violation.description || "",
+    evidenceBbox: violation.evidence_bbox || null,
+    citation: violation.citation || null,
+    detectedOnPackage: violation.detected_on_package || null,
+    expectedOnPackage: violation.expected_on_package || null,
+    packageElement: violation.package_element || null,
+  }));
 }
 
 const ALLOWED_IMAGE_MIMES = [
@@ -90,6 +137,9 @@ async function processPhotoScan({ inspectionId, imageBuffer, filename, category 
     if (cachedPipeline) {
       log.info(`Scan cache hit for image ${imageHash.slice(0, 12)}…`);
       ({ cloudinaryResult, ocrResult, complianceResult, annotatedUrl } = cachedPipeline);
+      if (!complianceResult) {
+        complianceResult = await evaluateOcrCompliance(ocrResult, category);
+      }
     } else {
       // Concurrent: Upload to Cloudinary & run OCR on FastAPI
       const [upload, ocr] = await Promise.all([
@@ -176,6 +226,199 @@ async function processPhotoScan({ inspectionId, imageBuffer, filename, category 
   }
 }
 
+async function processPhotoBatch({ inspectionId, images, category = "general", log }) {
+  try {
+    const faceResults = await Promise.all(images.map(async ({ imageBuffer, filename }, faceIndex) => {
+      const imageHash = createHash("sha256").update(imageBuffer).digest("hex");
+      const cachedPipeline = scanCache.get(imageHash);
+      let cloudinaryResult;
+      let ocrResult;
+      let complianceResult;
+      let annotatedUrl;
+
+      if (cachedPipeline) {
+        ({ cloudinaryResult, ocrResult, complianceResult, annotatedUrl } = cachedPipeline);
+        if (!complianceResult) {
+          complianceResult = await evaluateOcrCompliance(ocrResult, category);
+        }
+      } else {
+        const [upload, ocr] = await Promise.all([
+          uploadBuffer(imageBuffer, { filename }).catch((error) => {
+            log.warn(`Face ${faceIndex + 1} upload warning: ${error.message}`);
+            return { secure_url: null, public_id: null };
+          }),
+          runOcr(imageBuffer, filename),
+        ]);
+        if (!ocr?.success) throw new Error(`OCR extraction failed for face ${faceIndex + 1}`);
+        cloudinaryResult = upload;
+        ocrResult = extractAnnotatedImage(ocr).ocrSlim;
+        annotatedUrl = await hostAnnotatedImage(
+          extractAnnotatedImage(ocr).annotatedBase64,
+          filename,
+          log
+        );
+        scanCache.set(imageHash, { cloudinaryResult, ocrResult, annotatedUrl });
+      }
+
+      return { faceIndex, filename, cloudinaryResult, ocrResult, annotatedUrl };
+    }));
+    const productResult = await evaluateProductCompliance(faceResults, category);
+    const aggregated = aggregateProductFaceResults(faceResults, productResult);
+    const primary = faceResults[0];
+
+    await prisma.inspection.update({
+      where: { id: inspectionId },
+      data: {
+        imagePath: primary.cloudinaryResult.secure_url || null,
+        annotatedImagePath: primary.annotatedUrl || null,
+        rawOcrOutput: { source: "image-batch", category, face_count: aggregated.faceImages.length, face_images: aggregated.faceImages },
+        extractedDeclarations: aggregated.declarations.map((declaration) => ({
+          id: declaration.id,
+          field_name: declaration.field_name,
+          extracted_text: declaration.extracted_text,
+          parsed_value: declaration.parsed_value,
+          confidence: declaration.confidence,
+          font_size_mm_est: declaration.font_size_mm_est,
+          status: declaration.status,
+          face_index: declaration.face_index,
+        })),
+        complianceScore: aggregated.complianceScore,
+        status: aggregated.overallStatus,
+      },
+    });
+
+    const rows = violationRows(inspectionId, aggregated.violations);
+    if (rows.length) {
+      await prisma.violation.createMany({
+        data: rows,
+      });
+    }
+  } catch (error) {
+    log.error(error);
+    await prisma.inspection.update({
+      where: { id: inspectionId },
+      data: { status: "FAILED", rawOcrOutput: { source: "image-batch", error: error.message || "Image batch processing failed" } },
+    }).catch((updateError) => log.error(updateError));
+  }
+}
+
+/**
+ * Mask-pipeline scan (ENABLE_MASK_SCAN / --mask-scan):
+ * 1. For every input (video or image) call FastAPI's stateless
+ *    /api/v1/video/unwrap — SAM2 segments the label and returns rectified
+ *    2D label faces ready for OCR.
+ * 2. Each masked face runs the regular per-face pipeline: Cloudinary →
+ *    OCR → compliance → annotated evidence upload.
+ * 3. Aggregates into the same face_images shape as processPhotoBatch so
+ *    InspectionDetail.jsx and the PDF report render without changes.
+ *
+ * Resilience: if the masker finds no label on an image input, the original
+ * upload is OCR-ed directly instead of failing the whole inspection.
+ * Video inputs have no such fallback — no faces means a failed scan.
+ */
+async function processMaskedScan({ inspectionId, inputs, source, category = "general", log }) {
+  try {
+    const fallbackToOriginal = source !== "video-masked";
+    const faceResults = [];
+
+    // SAM2 unwrap is the bottleneck — unwrap inputs one at a time, then fan
+    // the per-face Cloudinary/OCR/compliance work out in parallel.
+    for (const [inputIndex, { imageBuffer, filename }] of inputs.entries()) {
+      let frames = [];
+      try {
+        const unwrapResponse = await unwrapVideo(imageBuffer, filename);
+        frames = unwrapResponse?.frames || [];
+      } catch (error) {
+        log.warn(`Mask extraction failed for ${filename}: ${error.message}`);
+      }
+
+      if (!frames.length && fallbackToOriginal) {
+        frames = [{ frame_index: 0, filename, image_base64: imageBuffer.toString("base64") }];
+      }
+      if (!frames.length) {
+        throw new Error(`No label faces detected in ${filename}`);
+      }
+
+      const baseIndex = faceResults.length;
+      const inputFaces = await Promise.all(frames.map(async (frame, frameIndex) => {
+        const faceBuffer = Buffer.from(frame.image_base64, "base64");
+        const faceFilename = `${inputIndex + 1}_${frame.filename || `face_${frameIndex + 1}.png`}`;
+
+        // Identical masked faces previously scanned (within the cache TTL)
+        // skip the Cloudinary + OCR + compliance round-trips entirely.
+        const faceHash = createHash("sha256").update(faceBuffer).digest("hex");
+        const cachedPipeline = scanCache.get(faceHash);
+        let cloudinaryResult;
+        let ocrResult;
+        let complianceResult;
+        let annotatedUrl;
+
+        if (cachedPipeline) {
+          ({ cloudinaryResult, ocrResult, complianceResult, annotatedUrl } = cachedPipeline);
+          if (!complianceResult) {
+            complianceResult = await evaluateOcrCompliance(ocrResult, category);
+          }
+        } else {
+          const [upload, ocr] = await Promise.all([
+            uploadBuffer(faceBuffer, { filename: faceFilename }).catch((error) => {
+              log.warn(`Face ${baseIndex + frameIndex + 1} upload warning: ${error.message}`);
+              return { secure_url: null, public_id: null };
+            }),
+            runOcr(faceBuffer, faceFilename),
+          ]);
+          if (!ocr?.success) throw new Error(`OCR extraction failed for face ${baseIndex + frameIndex + 1}`);
+          cloudinaryResult = upload;
+          const { annotatedBase64, ocrSlim } = extractAnnotatedImage(ocr);
+          annotatedUrl = await hostAnnotatedImage(annotatedBase64, faceFilename, log);
+          ocrResult = ocrSlim;
+          scanCache.set(faceHash, { cloudinaryResult, ocrResult, annotatedUrl });
+        }
+
+        return { faceIndex: baseIndex + frameIndex, filename: faceFilename, cloudinaryResult, ocrResult, annotatedUrl };
+      }));
+      faceResults.push(...inputFaces);
+    }
+
+    const productResult = await evaluateProductCompliance(faceResults, category);
+    const aggregated = aggregateProductFaceResults(faceResults, productResult);
+    const primary = faceResults[0];
+
+    await prisma.inspection.update({
+      where: { id: inspectionId },
+      data: {
+        imagePath: primary.cloudinaryResult.secure_url || null,
+        annotatedImagePath: primary.annotatedUrl || null,
+        rawOcrOutput: { source, category, face_count: aggregated.faceImages.length, face_images: aggregated.faceImages },
+        extractedDeclarations: aggregated.declarations.map((declaration) => ({
+          id: declaration.id,
+          field_name: declaration.field_name,
+          extracted_text: declaration.extracted_text,
+          parsed_value: declaration.parsed_value,
+          confidence: declaration.confidence,
+          font_size_mm_est: declaration.font_size_mm_est,
+          status: declaration.status,
+          face_index: declaration.face_index,
+        })),
+        complianceScore: aggregated.complianceScore,
+        status: aggregated.overallStatus,
+      },
+    });
+
+    const rows = violationRows(inspectionId, aggregated.violations);
+    if (rows.length) {
+      await prisma.violation.createMany({
+        data: rows,
+      });
+    }
+  } catch (error) {
+    log.error(error);
+    await prisma.inspection.update({
+      where: { id: inspectionId },
+      data: { status: "FAILED", rawOcrOutput: { source, error: error.message || "Masked scan processing failed" } },
+    }).catch((updateError) => log.error(updateError));
+  }
+}
+
 async function handlePhotoScan(req, reply) {
   try {
     const data = await req.file();
@@ -195,17 +438,22 @@ async function handlePhotoScan(req, reply) {
 
     const filename = data.filename || "label.jpg";
     const category = req.query?.category || data.fields?.category?.value || "general";
+    const maskEnabled = isMaskScanEnabled();
     const inspection = await prisma.inspection.create({
       data: {
         inspectorId: req.user?.id || null,
         status: "PROCESSING",
-        rawOcrOutput: { source: "image", filename, category },
+        rawOcrOutput: { source: maskEnabled ? "image-masked" : "image", filename, category },
       },
     });
 
     // Deliberately do not await: the client can move to Inspections as soon as
     // its upload has finished, while OCR and compliance run in the background.
-    void processPhotoScan({ inspectionId: inspection.id, imageBuffer, filename, category, log: req.log });
+    if (maskEnabled) {
+      void processMaskedScan({ inspectionId: inspection.id, inputs: [{ imageBuffer, filename }], source: "image-masked", category, log: req.log });
+    } else {
+      void processPhotoScan({ inspectionId: inspection.id, imageBuffer, filename, category, log: req.log });
+    }
     return reply.code(202).send({
       scan_id: inspection.id,
       status: inspection.status,
@@ -214,6 +462,53 @@ async function handlePhotoScan(req, reply) {
   } catch (error) {
     req.log.error(error);
     return reply.code(500).send({ error: "Internal Server Error", message: error.message || "Failed to queue photo scan" });
+  }
+}
+
+async function handlePhotoBatch(req, reply) {
+  try {
+    const images = [];
+    let category = req.query?.category || "general";
+    for await (const part of req.parts()) {
+      if (part.type === "file") {
+        if (!ALLOWED_IMAGE_MIMES.includes(part.mimetype)) {
+          return reply.code(400).send({ error: "Bad Request", message: `Invalid image type '${part.mimetype}'` });
+        }
+        const imageBuffer = await part.toBuffer();
+        if (!imageBuffer.length) {
+          return reply.code(400).send({ error: "Bad Request", message: "An uploaded image is empty" });
+        }
+        images.push({ imageBuffer, filename: part.filename || `face_${images.length + 1}.jpg` });
+      } else if (part.fieldname === "category" && part.value) {
+        category = part.value;
+      }
+    }
+    if (!images.length) {
+      return reply.code(400).send({ error: "Bad Request", message: "At least one image file is required" });
+    }
+
+    const maskEnabled = isMaskScanEnabled();
+    const inspection = await prisma.inspection.create({
+      data: {
+        inspectorId: req.user?.id || null,
+        status: "PROCESSING",
+        rawOcrOutput: { source: maskEnabled ? "image-masked" : "image-batch", face_count: images.length, category },
+      },
+    });
+    if (maskEnabled) {
+      void processMaskedScan({ inspectionId: inspection.id, inputs: images, source: "image-masked", category, log: req.log });
+    } else {
+      void processPhotoBatch({ inspectionId: inspection.id, images, category, log: req.log });
+    }
+    return reply.code(202).send({
+      scan_id: inspection.id,
+      status: inspection.status,
+      face_count: images.length,
+      created_at: inspection.createdAt,
+    });
+  } catch (error) {
+    req.log.error(error);
+    return reply.code(500).send({ error: "Internal Server Error", message: error.message || "Failed to queue image batch" });
   }
 }
 
@@ -492,6 +787,12 @@ async function processVideoScan({ inspectionId, videoBuffer, filename, log }) {
 
 async function handleVideoScan(req, reply) {
   try {
+    if (!isMaskScanEnabled()) {
+      return reply.code(503).send({
+        error: "Service Unavailable",
+        message: "Video scanning is disabled. Set ENABLE_MASK_SCAN=true in node-server/.env (or start with --mask-scan) to enable the label-mask pipeline.",
+      });
+    }
     const data = await req.file();
     if (!data) return reply.code(400).send({ error: "Bad Request", message: "Video file is required" });
     if (!ALLOWED_VIDEO_MIMES.includes(data.mimetype)) {
@@ -505,10 +806,10 @@ async function handleVideoScan(req, reply) {
       data: {
         inspectorId: req.user?.id || null,
         status: "PROCESSING",
-        rawOcrOutput: { source: "video", filename },
+        rawOcrOutput: { source: "video-masked", filename },
       },
     });
-    void processVideoScan({ inspectionId: inspection.id, videoBuffer, filename, log: req.log });
+    void processMaskedScan({ inspectionId: inspection.id, inputs: [{ imageBuffer: videoBuffer, filename }], source: "video-masked", category: "general", log: req.log });
     return reply.code(202).send({ scan_id: inspection.id, status: inspection.status, created_at: inspection.createdAt });
   } catch (error) {
     req.log.error(error);
@@ -571,6 +872,9 @@ async function getScanById(req, reply) {
       inspection.product?.category ||
       inspection.rawOcrOutput?.category ||
       "General Pre-Packaged Commodity";
+    const faceImages = Array.isArray(inspection.rawOcrOutput?.face_images)
+      ? inspection.rawOcrOutput.face_images
+      : [];
 
     return reply.code(200).send({
       scan_id: inspection.id,
@@ -581,6 +885,7 @@ async function getScanById(req, reply) {
       image_path: inspection.imagePath,
       annotated_image_path: inspection.annotatedImagePath || null,
       annotated_image_base64: inspection.rawOcrOutput?.annotated_image_base64 || null,
+      face_images: faceImages,
       created_at: inspection.createdAt,
       compliance_score: inspection.complianceScore,
       ocr_result: ocrOutput,
@@ -673,7 +978,7 @@ async function getComplianceRules(req, reply) {
     return reply.code(200).send(rules);
   } catch (error) {
     req.log.error(error);
-    return reply.code(502).send({ error: "Failed to fetch rules from FastAPI compute engine", message: error.message });
+    return reply.code(502).send({ error: "Failed to fetch rules from Prisma", message: error.message });
   }
 }
 
@@ -701,6 +1006,7 @@ async function searchStatutoryCorpus(req, reply) {
 
 export {
   handlePhotoScan,
+  handlePhotoBatch,
   handleVideoScan,
   getScanById,
   listScans,

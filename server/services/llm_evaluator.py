@@ -164,7 +164,13 @@ class LLMComplianceEvaluator:
             return False
         return True
 
-    def _build_prompt(self, ocr_result: OCRScanResult, category: str, ruleset: Dict[str, Any]) -> tuple[str, str]:
+    def _build_prompt(
+        self,
+        ocr_result: OCRScanResult,
+        category: str,
+        ruleset: Dict[str, Any],
+        face_texts: Optional[List[str]] = None
+    ) -> tuple[str, str]:
         system_prompt = (
             "You are an expert Legal Metrology Compliance Inspector for packaged commodities in India.\n"
             "Evaluate the provided OCR label text against India's Legal Metrology (Packaged Commodities) Rules, 2011 "
@@ -186,7 +192,11 @@ class LLMComplianceEvaluator:
             "   - Prohibited non-standard symbols are: 'gms', 'gm', 'ltrs', 'kgs'. If used, mark violation_type='wrong_format'.\n"
             "6. Always preserve exact verbatim spacing and capitalization from OCR (e.g. '30 N x 5 g', never squish to '30Nx5g').\n"
             "7. Keep 'explanation' concise (maximum 15 words).\n"
-            "8. Return ONLY a valid JSON object matching the requested schema without any markdown formatting.\n\n"
+            "8. Return ONLY a valid JSON object matching the requested schema without any markdown formatting.\n"
+            "9. MULTI-FACE PRODUCT EVALUATION (applies when the OCR text contains several label faces of the SAME product):\n"
+            "   - A mandatory declaration printed on ANY face is PRESENT on the product.\n"
+            "   - Mark status='FAIL' with violation_type='missing' ONLY when the declaration is absent from ALL faces.\n"
+            "   - Cite the exact_quote from the face where the declaration actually appears.\n\n"
             "JSON Schema:\n"
             "{\n"
             '  "category": "string",\n'
@@ -229,11 +239,21 @@ class LLMComplianceEvaluator:
         if exempt_desc:
             user_content += "Statutory Exemptions:\n" + "\n".join(exempt_desc) + "\n\n"
 
-        user_content += (
-            f"OCR Extracted Packaging Text:\n"
-            f"'''\n{ocr_result.raw_text}\n'''\n\n"
-            "Perform legal metrology compliance assessment and output JSON."
-        )
+        if face_texts and len(face_texts) > 1:
+            sections = "\n\n".join(
+                f"--- Face {i + 1} ---\n{text}" for i, text in enumerate(face_texts)
+            )
+            user_content += (
+                f"OCR Extracted Packaging Text ({len(face_texts)} label faces of the SAME product):\n"
+                f"'''\n{sections}\n'''\n\n"
+                "Treat all faces as one product when assessing compliance and output JSON."
+            )
+        else:
+            user_content += (
+                f"OCR Extracted Packaging Text:\n"
+                f"'''\n{ocr_result.raw_text}\n'''\n\n"
+                "Perform legal metrology compliance assessment and output JSON."
+            )
 
         return system_prompt, user_content
 
@@ -241,17 +261,20 @@ class LLMComplianceEvaluator:
         self,
         ocr_result: OCRScanResult,
         category: str,
-        ruleset: Dict[str, Any]
+        ruleset: Dict[str, Any],
+        face_texts: Optional[List[str]] = None
     ) -> Optional[ComplianceResult]:
         """
         Runs direct LLM compliance evaluation via Groq with anti-hallucination grounding.
+        face_texts carries the per-face raw text of a multi-face product scan so the
+        prompt can show the model which face each declaration sits on.
         Returns ComplianceResult if successful, or None to fall back to the deterministic regex engine.
         """
         if not self.is_available():
             return None
 
         start_time = time.time()
-        system_prompt, user_content = self._build_prompt(ocr_result, category, ruleset)
+        system_prompt, user_content = self._build_prompt(ocr_result, category, ruleset, face_texts=face_texts)
 
         headers = {
             "Content-Type": "application/json",
