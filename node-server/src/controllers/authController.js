@@ -172,7 +172,6 @@ async function getMe(req, reply) {
   // Auth middleware only provides JWT fields (id, email, role, fullName).
   // Profile endpoint needs the full user record from DB.
   try {
-    const prisma = require("../config/db");
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: {

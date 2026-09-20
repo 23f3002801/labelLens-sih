@@ -22,6 +22,7 @@ class DeclarationFound(BaseModel):
     format_valid: bool = Field(default=True, description="True if text matches mandated Legal Metrology format")
     size_valid: bool = Field(default=True, description="True if font size meets minimum height requirement")
     status: str = Field(default="COMPLIANT", description="COMPLIANT, FORMAT_ERROR, or TOO_SMALL")
+    face_index: Optional[int] = Field(default=None, description="Index of the product face the declaration was found on (multi-face product evaluation)")
     citation: Optional[LegalCitation] = Field(default=None, description="Official statutory Act/Rule citation")
 
 class DeclarationMissing(BaseModel):
@@ -42,6 +43,7 @@ class ViolationDetail(BaseModel):
     expected_on_package: Optional[str] = Field(default=None, description="Legally mandated format or declaration that package must display")
     package_element: Optional[str] = Field(default=None, description="Section or component of the package in violation (e.g. Principal Display Panel, Net Quantity Declaration)")
     evidence_bbox: Optional[BBox] = Field(default=None, description="Location of non-compliant block")
+    face_index: Optional[int] = Field(default=None, description="Index of the product face the violating text sits on; None = product-wide (missing everywhere)")
     citation: Optional[LegalCitation] = Field(default=None, description="Official statutory Act/Rule citation for this violation")
 
 class ComplianceSummary(BaseModel):

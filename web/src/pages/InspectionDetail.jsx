@@ -10,6 +10,7 @@ export default function InspectionDetail() {
   const [loading, setLoading] = useState(() => !api.peekInspection(id));
   const [error, setError] = useState('');
   const [activeImageTab, setActiveImageTab] = useState('annotated');
+  const [activeFaceIndex, setActiveFaceIndex] = useState(0);
   const [showReportModal, setShowReportModal] = useState(false);
 
   useEffect(() => {
@@ -57,12 +58,6 @@ export default function InspectionDetail() {
   }
 
   const isCompliant = inspection?.status === 'compliant' || inspection?.status === 'COMPLIANT';
-  const hasAnnotated = !!(inspection?.annotatedImageUrl || inspection?.annotatedImagePath);
-  const displayedImage =
-    activeImageTab === 'annotated'
-      ? (inspection?.annotatedImageUrl || inspection?.annotatedImagePath || inspection?.imageUrl)
-      : inspection?.imageUrl;
-
   const declarations = Array.isArray(inspection?.extractedDeclarations)
     ? inspection.extractedDeclarations
     : Array.isArray(inspection?.extracted_declarations)
@@ -81,6 +76,18 @@ export default function InspectionDetail() {
     inspection?.category ||
     inspection?.product?.category ||
     'General Pre-Packaged Commodity';
+
+  const faceImages = Array.isArray(inspection?.faceImages) ? inspection.faceImages : [];
+  const activeFace = faceImages[activeFaceIndex] || null;
+  const hasAnnotated = !!(activeFace?.annotated_image_path || inspection?.annotatedImageUrl || inspection?.annotatedImagePath);
+  const faceDeclarations = activeFace?.extracted_declarations || declarations;
+  const faceViolations = activeFace?.violations || inspection?.violations || [];
+  const faceScore = activeFace?.compliance_score ?? inspection?.complianceScore ?? 0;
+  const faceIsCompliant = activeFace ? activeFace.overall_result === 'PASS' : isCompliant;
+  const displayedImage =
+    activeImageTab === 'annotated'
+      ? (activeFace?.annotated_image_path || inspection?.annotatedImageUrl || inspection?.annotatedImagePath || activeFace?.image_url || inspection?.imageUrl)
+      : (activeFace?.image_url || inspection?.imageUrl);
 
   return (
     <DashboardLayout>
@@ -137,6 +144,38 @@ export default function InspectionDetail() {
 
             {/* Image Viewer with Dual-Mode Tabs */}
             <div className="lg:col-span-2 bg-surface-container-lowest rounded-2xl p-6 shadow-sm border border-outline-variant/30 flex flex-col">
+              {faceImages.length > 1 && (
+                <div className="mb-5 pb-4 border-b border-outline-variant/30">
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                      <h3 className="font-semibold text-on-surface">Product Faces</h3>
+                      <p className="text-xs text-on-surface-variant">Face {activeFaceIndex + 1} of {faceImages.length} · Each face has its own compliance result</p>
+                    </div>
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${faceIsCompliant ? 'bg-success-container text-on-success-container' : 'bg-error-container text-on-error-container'}`}>
+                      {Math.round(faceScore)}% {faceIsCompliant ? 'Compliant' : 'Needs attention'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button type="button" aria-label="Previous product face" disabled={activeFaceIndex === 0} onClick={() => setActiveFaceIndex((index) => Math.max(0, index - 1))} className="p-2 rounded-lg bg-surface-container-low text-on-surface-variant disabled:opacity-40">
+                      <span className="material-symbols-outlined">chevron_left</span>
+                    </button>
+                    <div className="flex-1 flex gap-2 overflow-x-auto pb-1">
+                      {faceImages.map((face, index) => {
+                        const thumbnail = face.annotated_image_path || face.image_url;
+                        return (
+                          <button type="button" key={`${face.face_index ?? index}-${face.filename || index}`} onClick={() => setActiveFaceIndex(index)} className={`relative flex-shrink-0 w-20 h-16 rounded-lg overflow-hidden border-2 ${index === activeFaceIndex ? 'border-primary' : 'border-outline-variant/40'}`} aria-label={`Show product face ${index + 1}`}>
+                            {thumbnail ? <img src={thumbnail} alt={`Face ${index + 1}`} className="w-full h-full object-cover" /> : <span className="material-symbols-outlined text-on-surface-variant">hide_image</span>}
+                            <span className="absolute bottom-0 inset-x-0 bg-slate-900/75 text-white text-[10px] font-semibold py-0.5">Face {index + 1}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button type="button" aria-label="Next product face" disabled={activeFaceIndex === faceImages.length - 1} onClick={() => setActiveFaceIndex((index) => Math.min(faceImages.length - 1, index + 1))} className="p-2 rounded-lg bg-surface-container-low text-on-surface-variant disabled:opacity-40">
+                      <span className="material-symbols-outlined">chevron_right</span>
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-outline-variant/20">
                 <div>
                   <h3 className="font-semibold text-on-surface flex items-center gap-2">
@@ -219,12 +258,12 @@ export default function InspectionDetail() {
                       Mandatory Statutory Declarations (Legal Metrology PCR Rule 6)
                     </h4>
                     <span className="text-xs text-on-surface-variant font-mono bg-surface-container-low px-2 py-0.5 rounded">
-                      {declarations.length} Marks Evaluated
+                      {faceDeclarations.length} Marks Evaluated
                     </span>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {declarations.map((d, idx) => {
+                    {faceDeclarations.map((d, idx) => {
                       const decl = resolveDeclarationInfo(d, idx);
                       return (
                         <div
@@ -310,7 +349,7 @@ export default function InspectionDetail() {
                   </div>
                   <div>
                     <p className="text-xs text-on-surface-variant uppercase tracking-wider mb-1">Statutory Violations</p>
-                    <p className="font-medium text-on-surface">{inspection.violations?.length ?? 0} defects flagged</p>
+                      <p className="font-medium text-on-surface">{faceViolations.length} defects flagged</p>
                   </div>
                 </div>
               </div>
@@ -330,7 +369,7 @@ export default function InspectionDetail() {
                     Violations Found ({inspection.violations.length})
                   </h3>
                   <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-                    {inspection.violations.map((v, idx) => (
+                    {faceViolations.map((v, idx) => (
                       <div key={v.id ?? idx} className="p-3 rounded-lg bg-error-container/40 border border-error/20">
                         <div className="flex items-start justify-between gap-2">
                           <p className="text-sm font-medium text-on-error-container">{v.title}</p>

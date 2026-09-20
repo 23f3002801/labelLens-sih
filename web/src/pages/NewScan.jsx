@@ -37,14 +37,19 @@ export default function NewScan() {
       if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
         await Notification.requestPermission();
       }
-      let completed = 0;
-      const scans = await Promise.all(files.map(async (file) => {
-        const upload = VIDEO_TYPES.includes(file.type) ? api.uploadVideo : api.uploadImage;
-        const result = await upload(file, (fileProgress) => setProgress(Math.round(((completed + fileProgress / 100) / files.length) * 100)));
-        completed += 1;
-        setProgress(Math.round((completed / files.length) * 100));
-        return result;
-      }));
+      const images = files.filter((file) => IMAGE_TYPES.includes(file.type));
+      const videos = files.filter((file) => VIDEO_TYPES.includes(file.type));
+      const scans = [];
+      if (images.length) {
+        scans.push(await api.uploadImages(images, (fileProgress) => setProgress(Math.round(fileProgress * (videos.length ? 0.8 : 1)))));
+      }
+      for (let index = 0; index < videos.length; index += 1) {
+        const result = await api.uploadVideo(videos[index], (fileProgress) => {
+          const base = images.length ? 80 : 0;
+          setProgress(Math.round(base + ((index + fileProgress / 100) / videos.length) * (100 - base)));
+        });
+        scans.push(result);
+      }
       api.trackPendingScans(scans);
       navigate('/dashboard/inspections', { state: { queued: scans.length } });
     } catch (err) {

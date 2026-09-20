@@ -1,22 +1,31 @@
-import base64
 import logging
-from typing import Optional
+from typing import Any, Dict, Optional
 from fastapi import APIRouter, File, UploadFile, Query, HTTPException, status, Depends
-from sqlalchemy.orm import Session
+from pydantic import BaseModel
 
 from schemas.compliance import ComplianceResult, LegalCitation
 from schemas.ocr import OCRScanResult
 from services.ocr_service import get_ocr_service
-from services.compliance_evaluator import evaluate_label_compliance
-from services.rule_loader import (
-    load_rules_from_file,
-    get_rules_for_category,
-)
+from services.compliance_evaluator import evaluate_label_compliance, evaluate_label_compliance_multi
 from services.rag.citation_service import get_citation_service
-from database import get_db
-from models import Inspection, Violation, Product
 
 logger = logging.getLogger("compliance_router")
+
+
+class ComplianceEvaluationRequest(BaseModel):
+    ocr_result: OCRScanResult
+    ruleset: Dict[str, Any]
+
+
+class FaceOCR(BaseModel):
+    face_index: int
+    filename: str = ""
+    ocr_result: OCRScanResult
+
+
+class MultiFaceEvaluationRequest(BaseModel):
+    faces: list[FaceOCR]
+    ruleset: Dict[str, Any]
 
 router = APIRouter(prefix="/api/v1/compliance", tags=["Compliance Evaluation Engine"])
 
@@ -31,14 +40,8 @@ def get_active_rules(
         default="general",
         description="Product category (general, food, cosmetics, textile, electronics, all)",
     ),
-    db: Session = Depends(get_db),
 ):
-    try:
-        rules_data = get_rules_for_category(category=category, db=db)
-        return rules_data
-    except Exception as exc:
-        logger.warning("Could not get rules from DB, falling back to file: %s", exc)
-        return load_rules_from_file()
+    raise HTTPException(status_code=410, detail="Rules are owned by the Node Prisma service.")
 
 
 @router.post(
@@ -52,9 +55,12 @@ async def evaluate_image_compliance(
     enhance: bool = Query(default=True, description="Apply contrast enhancement preprocessing"),
     min_confidence: float = Query(default=0.3, ge=0.0, le=1.0, description="Minimum OCR confidence threshold"),
     category: Optional[str] = Query(default=None, description="Product category override (food, cosmetics, textile, electronics, general)"),
-    product_id: Optional[str] = Query(default=None, description="Optional existing Product ID to resolve category and link inspection"),
-    db: Session = Depends(get_db),
+    product_id: Optional[str] = Query(default=None, description="Ignored; product data is owned by Node Prisma"),
 ):
+    raise HTTPException(status_code=410, detail="Use the Node Prisma scan workflow for persisted image evaluations.")
+
+    # The legacy implementation below is intentionally unreachable. Keeping the
+    # endpoint name makes accidental direct use fail clearly during migration.
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -169,20 +175,38 @@ async def evaluate_image_compliance(
     description="Takes raw OCRScanResult JSON output and evaluates against category-scoped Legal Metrology DB ruleset.",
 )
 async def evaluate_ocr_payload(
-    ocr_result: OCRScanResult,
+    request: "ComplianceEvaluationRequest",
     category: Optional[str] = Query(default="general", description="Product category (food, cosmetics, textile, electronics, general)"),
-    product_id: Optional[str] = Query(default=None, description="Optional Product ID to resolve category"),
-    db: Session = Depends(get_db),
+    product_id: Optional[str] = Query(default=None, description="Ignored; product data is owned by Node Prisma"),
 ):
-    resolved_category = category
-    if product_id:
-        product = db.get(Product, product_id)
-        if product and product.category:
-            resolved_category = product.category
-    resolved_category = (resolved_category or "general").strip().lower()
+    resolved_category = (category or "general").strip().lower()
+    if not request.ruleset.get("mandatory_declarations"):
+        raise HTTPException(status_code=422, detail="A Prisma-managed ruleset is required.")
+    result = evaluate_label_compliance(request.ocr_result, ruleset=request.ruleset, category=resolved_category)
+    return result
 
-    ruleset = get_rules_for_category(category=resolved_category, db=db)
-    result = evaluate_label_compliance(ocr_result, ruleset=ruleset, db=db, category=resolved_category)
+
+@router.post(
+    "/evaluate-ocr-multi",
+    response_model=ComplianceResult,
+    summary="Evaluate a complete product across multiple label faces",
+)
+async def evaluate_multi_face_payload(
+    request: MultiFaceEvaluationRequest,
+    category: Optional[str] = Query(default="general"),
+):
+    resolved_category = (category or "general").strip().lower()
+    if not request.ruleset.get("mandatory_declarations"):
+        raise HTTPException(status_code=422, detail="A Prisma-managed ruleset is required.")
+    if not request.faces:
+        raise HTTPException(status_code=422, detail="At least one face OCR result is required.")
+
+    ordered_faces = sorted(request.faces, key=lambda face: face.face_index)
+    result = evaluate_label_compliance_multi(
+        [face.ocr_result for face in ordered_faces],
+        ruleset=request.ruleset,
+        category=resolved_category,
+    )
     return result
 
 

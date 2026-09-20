@@ -332,6 +332,7 @@ function ReportModalContent({ inspection, onClose }) {
 
   const evidenceImage = inspection.annotatedImageUrl || inspection.annotatedImagePath || inspection.imageUrl;
   const originalImage = inspection.imageUrl;
+  const faceImages = Array.isArray(inspection.faceImages) ? inspection.faceImages : [];
 
   const handlePrint = () => {
     const reportElem = document.getElementById('printable-report');
@@ -386,6 +387,10 @@ function ReportModalContent({ inspection, onClose }) {
             .avoid-break {
               break-inside: avoid !important;
               page-break-inside: avoid !important;
+            }
+            .face-report-page {
+              break-before: page !important;
+              page-break-before: always !important;
             }
             img {
               max-width: 100%;
@@ -550,8 +555,51 @@ function ReportModalContent({ inspection, onClose }) {
             </div>
           </div>
 
-          {/* Primary Evidence Section (Bounding Box Image) */}
-          <div className="avoid-break space-y-3">
+          {faceImages.length > 1 && faceImages.map((face, index) => {
+            const faceViolations = Array.isArray(face.violations) ? face.violations : [];
+            const faceDeclarations = Array.isArray(face.extracted_declarations) ? face.extracted_declarations : [];
+            const faceScore = Math.round(face.compliance_score ?? 0);
+            const facePasses = face.overall_result === 'PASS';
+            return (
+              <section key={`${face.face_index ?? index}-${face.filename || index}`} className="face-report-page space-y-5">
+                <div className="border-b-2 border-slate-900 pb-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-mono uppercase tracking-widest text-emerald-700">Face-by-face assessment</p>
+                    <h2 className="text-2xl font-black text-slate-950">Product Face {(face.face_index ?? index) + 1}</h2>
+                    <p className="text-xs text-slate-600">{safeString(face.filename, `Packaging face ${(face.face_index ?? index) + 1}`)}</p>
+                  </div>
+                  <div className={`px-3 py-2 rounded-lg border-2 text-right ${facePasses ? 'border-emerald-500 bg-emerald-50 text-emerald-900' : 'border-rose-500 bg-rose-50 text-rose-900'}`}>
+                    <div className="text-[10px] uppercase font-bold">Face result</div>
+                    <div className="text-xl font-black">{faceScore}%</div>
+                    <div className="text-[10px] font-bold uppercase">{facePasses ? 'Compliant' : 'Needs attention'}</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {[['Annotated bounding boxes', face.annotated_image_path], ['Original packaging photo', face.image_url]].map(([label, src]) => (
+                    <div key={label} className="rounded-xl border border-slate-300 overflow-hidden bg-white">
+                      <div className="p-2 bg-slate-100 text-[11px] font-mono font-semibold text-slate-700">{label}</div>
+                      <div className="h-56 flex items-center justify-center p-3">
+                        {src ? <img src={src} alt={`${label} for face ${(face.face_index ?? index) + 1}`} className="max-h-full max-w-full object-contain rounded" /> : <span className="text-xs text-slate-400">Image unavailable</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="rounded-xl border border-rose-200 p-4">
+                    <h3 className="font-bold text-sm text-rose-900 mb-3">Face violations</h3>
+                    {faceViolations.length ? <ul className="space-y-2 text-xs">{faceViolations.map((violation, violationIndex) => <li key={violation.id || violationIndex} className="border-b border-rose-100 pb-2"><strong>{safeString(violation.field_name || violation.rule_id, 'Violation')}</strong><div className="text-slate-600 mt-0.5">{safeString(violation.description, 'Regulatory declaration requires review.')}</div></li>)}</ul> : <p className="text-xs text-emerald-700">No violations recorded for this face.</p>}
+                  </div>
+                  <div className="rounded-xl border border-slate-200 p-4">
+                    <h3 className="font-bold text-sm text-slate-900 mb-3">Declarations evaluated</h3>
+                    {faceDeclarations.length ? <ul className="space-y-2 text-xs">{faceDeclarations.map((declaration, declarationIndex) => <li key={declaration.id || declarationIndex} className="flex justify-between gap-3 border-b border-slate-100 pb-2"><span>{safeString(declaration.field_name || declaration.id, 'Declaration')}</span><span className="font-mono text-emerald-700 text-right">{safeString(declaration.extracted_text, 'Verified')}</span></li>)}</ul> : <p className="text-xs text-slate-500">No declarations recorded.</p>}
+                  </div>
+                </div>
+              </section>
+            );
+          })}
+
+          {/* Single-image report sections remain unchanged for legacy scans. */}
+          {faceImages.length <= 1 && <div className="avoid-break space-y-3">
             <div className="flex items-center justify-between border-b border-slate-200 pb-2">
               <h3 className="font-bold text-sm uppercase tracking-wide text-slate-900 flex items-center gap-2">
                 <span className="material-symbols-outlined text-emerald-700 text-lg">image_search</span>
@@ -613,10 +661,10 @@ function ReportModalContent({ inspection, onClose }) {
                 </div>
               </div>
             </div>
-          </div>
+          </div>}
 
           {/* Statutory Violations Table (if any) */}
-          {violations.length > 0 && (
+          {faceImages.length <= 1 && violations.length > 0 && (
             <div className="avoid-break space-y-2">
               <h3 className="font-bold text-sm uppercase tracking-wide text-rose-900 flex items-center gap-2">
                 <span className="material-symbols-outlined text-rose-600 text-lg">gavel</span>
@@ -687,7 +735,7 @@ function ReportModalContent({ inspection, onClose }) {
           )}
 
           {/* Mandatory Statutory Declarations Verification Checklist (Rule 6(1)) */}
-          {declarations.length > 0 ? (
+          {faceImages.length <= 1 && (declarations.length > 0 ? (
             <div className="avoid-break space-y-2">
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-sm uppercase tracking-wide text-slate-900 flex items-center gap-2">
@@ -765,7 +813,7 @@ function ReportModalContent({ inspection, onClose }) {
                 {violations.length === 0 ? ' No statutory discrepancies were identified.' : ` ${violations.length} discrepancy notice item(s) recorded above.`}
               </p>
             </div>
-          )}
+          ))}
 
           {/* Statutory Sign-off & Audit Seal */}
           <div className="avoid-break pt-4 border-t-2 border-slate-900 flex flex-col md:flex-row items-end justify-between gap-6">

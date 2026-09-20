@@ -1,18 +1,11 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
-from sqlalchemy.orm import Session
-from sqlalchemy import text
-
-from database import engine, get_db, init_db
-from services.rule_loader import sync_rules_to_db
 from routers.ocr import router as ocr_router
 from routers.compliance import router as compliance_router
-from routers.uploads import router as uploads_router
-from routers.video import router as video_router
-from routers.demo import router as demo_router
+from routers.stateless_video import router as video_router
 
 import logging
 
@@ -20,14 +13,6 @@ logger = logging.getLogger("main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Old FastAPI persistence decommissioned (Issue #47) in favor of Node.js Fastify & Prisma
-    # DB initialization is optional/non-blocking so FastAPI runs as a 100% stateless compute service
-    try:
-        init_db()
-        sync_rules_to_db()
-        logger.info("Database schema check passed.")
-    except Exception as e:
-        logger.warning(f"Database initialization skipped (persistence decommissioned to Node server): {e}")
     yield
 
 app = FastAPI(
@@ -69,9 +54,7 @@ app.add_middleware(
 # Register Routers
 app.include_router(ocr_router)
 app.include_router(compliance_router)
-app.include_router(uploads_router)
 app.include_router(video_router)
-app.include_router(demo_router)
 
 @app.get("/", tags=["Health"])
 def read_root():
@@ -86,17 +69,3 @@ def read_root():
 def health_check():
     return {"status": "healthy"}
 
-@app.get("/health/db", tags=["Health"])
-def db_health_check(db: Session = Depends(get_db)):
-    """
-    Checks database connection status and returns dialect (PostgreSQL / SQLite).
-    """
-    try:
-        db.execute(text("SELECT 1"))
-        return {
-            "status": "healthy",
-            "database_connected": True,
-            "dialect": engine.dialect.name
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database connection error: {str(e)}")

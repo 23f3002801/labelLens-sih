@@ -38,6 +38,7 @@ class TextBlock(BaseModel):
     bbox: BBox = Field(..., description="Axis-aligned bounding box")
     size: BlockSize = Field(..., description="Physical dimensions and font size estimation of text block")
     center: Optional[Point] = Field(default=None, description="Center coordinates of text block")
+    face_index: Optional[int] = Field(default=None, description="Index of the product face this block was read from (multi-face scans)")
 
     def __init__(self, **data):
         if "bbox" in data:
