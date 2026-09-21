@@ -102,13 +102,28 @@ export default function InspectorConsole() {
     setScanStep("Uploading label image to inspection pipeline...");
 
     try {
-      setTimeout(() => setScanStep("Running RapidOCR text & typography extraction..."), 800);
-      setTimeout(() => setScanStep(`Evaluating ${selectedCategory.toUpperCase()} Legal Metrology 2011 rules...`), 1800);
-      setTimeout(() => setScanStep("Mapping official statutory citations & penalties..."), 2600);
+      const result = await api.uploadAndScan(selectedFile, selectedCategory, (stepText) => {
+        if (stepText) setScanStep(stepText);
+      });
 
-      const result = await api.uploadAndScan(selectedFile, selectedCategory);
-      setScanResult(result);
-      setImageViewMode("annotated");
+      const annotatedImg =
+        result.annotated_image_path ||
+        result.annotated_image_base64 ||
+        result.ocr_result?.annotated_image_base64 ||
+        null;
+
+      setScanResult({
+        ...result,
+        overall_result: (result.status === "COMPLIANT" || result.overall_result === "PASS") ? "PASS" : "FAIL",
+        annotated_image_base64: annotatedImg,
+      });
+
+      if (annotatedImg) {
+        setImageViewMode("annotated");
+      } else if (result.image_path) {
+        setImageViewMode("original");
+      }
+
       // Refresh history
       loadInspectionHistory(historyFilter);
     } catch (err) {
