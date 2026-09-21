@@ -1,0 +1,39 @@
+{
+  "name": "labellens-node-server",
+  "version": "1.0.0",
+  "description": "LabelLens Fastify Backend - State, Storage & Orchestration Engine",
+  "main": "src/server.js",
+  "scripts": {
+    "test": "node test/test_suite.js",
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "prisma:seed": "node prisma/seed.js"
+  },
+  "keywords": [
+    "fastify",
+    "prisma",
+    "labellens",
+    "cloudinary",
+    "legal-metrology"
+  ],
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@fastify/cors": "^10.1.0",
+    "@fastify/multipart": "^10.1.1",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "bcrypt": "^6.0.0",
+    "cloudinary": "^2.11.0",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.12.4",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14",
+    "prisma": "^7.10.0"
+  }
+}
