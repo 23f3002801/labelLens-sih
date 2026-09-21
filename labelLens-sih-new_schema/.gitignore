@@ -1,0 +1,59 @@
+# Internal planning doc
+ISSUES.md
+CLAUDE.md
+
+# Python / uv (server)
+server/.venv/
+.venv/
+video_outputs/
+server/checkpoints/*.pt
+server/checkpoints/
+server/__pycache__/
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+**/.pytest_cache/
+*.pyc
+server/*.db
+*.db
+server/storage/uploads/
+server/uploads/
+server/storage/reports/
+server/scratch/
+scratch/
+.env
+server/.env
+**/.env
+
+# RapidOCR / ONNX Models & Cached Weights
+*.onnx
+.rapidocr/
+
+# Node / Expo (app) and Vite (web)
+node_modules/
+.expo/
+dist/
+build/
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+graphify-out/
+app/MOBILE_PLAN.txt
+
+# Internal planning doc
+IMPLEMENTATION.md
+
+# Government Gazette raw PDFs (~130 MB) & intermediate extraction dumps
+server/data/*.pdf
+server/data/extracted_english/*.txt
+server/data/extracted_english/*.json
+!server/data/extracted_english/all_extracted_english.json
+
+# Local test / regression datasets
+dataset/ocr_regression/
