@@ -15,11 +15,60 @@ from schemas.compliance import (
     DeclarationMissing,
     ViolationDetail
 )
-from services.rule_loader import get_rules_from_db, get_rules_for_category
 from services.llm_evaluator import get_llm_evaluator, get_package_element_for_rule
 from services.rag.citation_service import get_citation_service
 
 logger = logging.getLogger("compliance_evaluator")
+
+
+def merge_ocr_results(face_results: List[OCRScanResult]) -> OCRScanResult:
+    """
+    Combines the OCR output of several product faces into ONE product-level
+    OCRScanResult, so the compliance engine evaluates the whole product: a
+    mandatory declaration printed on any face (MRP on the back, ingredients on
+    the side) satisfies its rule, exactly like a physical inspector reading
+    every face of the package before ruling.
+
+    Font metrics are rescaled to a common reference image height, because the
+    engine estimates physical font size as px/image_height * 150mm: scaling px
+    by ref_h/face_h keeps each block's mm estimate identical to what its own
+    face would have produced. BBox coordinates are left untouched — they stay
+    relative to the face image the block was read from (used as evidence only).
+    """
+    # Faces without any OCR blocks contribute nothing to the merged view but
+    # keep their original index — Node's face_images array is indexed the same
+    # way, so attribution must not renumber when a face is skipped.
+    populated = [(i, f) for i, f in enumerate(face_results) if f and f.text_blocks]
+    if not populated:
+        raise ValueError("At least one face OCR result with text blocks is required")
+
+    ref_height = max(f.image_metadata.height for _, f in populated)
+    ref_face = next(f for _, f in populated if f.image_metadata.height == ref_height)
+
+    merged_blocks: List[TextBlock] = []
+    for face_index, face in populated:
+        scale = ref_height / max(face.image_metadata.height, 1)
+        for block in face.text_blocks:
+            data = block.model_dump()
+            data["id"] = len(merged_blocks) + 1
+            data["face_index"] = face_index
+            if scale != 1.0:
+                size = data["size"]
+                size["estimated_font_size_px"] = size["estimated_font_size_px"] * scale
+                size["width"] = size.get("width", 0.0) * scale
+                size["height"] = size.get("height", 0.0) * scale
+            merged_blocks.append(TextBlock(**data))
+
+    raw_text = "\n".join(f.raw_text for _, f in populated if f.raw_text)
+
+    return OCRScanResult(
+        success=all(f.success for _, f in populated),
+        image_metadata=ref_face.image_metadata,
+        total_text_blocks=len(merged_blocks),
+        text_blocks=merged_blocks,
+        raw_text=raw_text,
+        processing_time_ms=sum(f.processing_time_ms for _, f in populated),
+    )
 
 # Patterns and keywords for category-specific declarations
 CATEGORY_RULE_PATTERNS = {
@@ -207,7 +256,7 @@ class ComplianceEvaluator:
         category: Optional[str] = None
     ):
         if ruleset is None:
-            ruleset = get_rules_for_category(category=category, db=db)
+            raise ValueError("A Prisma-managed ruleset is required for stateless evaluation")
         self.ruleset = ruleset
         self.category = category or ruleset.get("category", "general")
         self.mandatory_rules = ruleset.get("mandatory_declarations", [])
@@ -224,13 +273,18 @@ class ComplianceEvaluator:
                 pass
         return default
 
-    def evaluate(self, ocr_result: OCRScanResult, image_bytes: Optional[bytes] = None) -> ComplianceResult:
+    def evaluate(self, ocr_result: OCRScanResult, image_bytes: Optional[bytes] = None,
+                 face_texts: Optional[List[str]] = None) -> ComplianceResult:
         """
         Core Compliance Engine:
         - First checks if direct LLM evaluation (Groq / Qwen) is active.
         - If active and successful, returns grounded LLM compliance result.
         - Otherwise, executes deterministic Legal Metrology regex validation.
         - Generates color-coded evidence image highlighting only non-compliant blocks.
+
+        face_texts carries the per-face raw text of a multi-face product scan;
+        it only shapes the LLM prompt (per-face labeled sections) and is never
+        needed for the deterministic engine.
         """
         # 1. Direct LLM Evaluation Hook (Groq / Qwen)
         llm_eval = get_llm_evaluator()
@@ -238,7 +292,8 @@ class ComplianceEvaluator:
             llm_result = llm_eval.evaluate_with_llm(
                 ocr_result,
                 category=self.category,
-                ruleset=self.ruleset
+                ruleset=self.ruleset,
+                face_texts=face_texts
             )
             if llm_result is not None:
                 # Attach official statutory legal citations to LLM findings
@@ -529,6 +584,65 @@ class ComplianceEvaluator:
             annotated_image_base64=annotated_b64 or ocr_result.annotated_image_base64,
             structured_result=structured_result,
         )
+
+    def evaluate_product(self, face_results: List[OCRScanResult]) -> ComplianceResult:
+        """
+        Whole-product compliance evaluation across every face of one package:
+        merges all faces' OCR (merge_ocr_results) so a declaration printed on
+        ANY face satisfies its rule, runs the single evaluation once, then
+        stamps each finding with the face it was actually read from so callers
+        can render per-face evidence while the verdict stays product-level.
+        """
+        merged = merge_ocr_results(face_results)
+        face_texts = [
+            f.raw_text or "\n".join(b.text for b in f.text_blocks)
+            for f in face_results
+        ]
+        result = self.evaluate(
+            merged,
+            face_texts=face_texts if len(face_results) > 1 else None
+        )
+        self._attribute_faces(result, merged.text_blocks)
+        return result
+
+    @staticmethod
+    def _match_face(bbox, text: Optional[str], blocks: List[TextBlock]) -> Optional[int]:
+        """Finds the face a finding's evidence came from: the merged block(s)
+        whose bbox equals the finding's bbox, preferring a text match when
+        several faces carry text at identical coordinates. Findings without a
+        usable bbox (nowhere-on-package) stay product-wide (None)."""
+        if not bbox or bbox.x_max <= 0:
+            return None
+        candidates = [b for b in blocks if b.face_index is not None and b.bbox == bbox]
+        if not candidates:
+            return None
+        if text:
+            for block in candidates:
+                if block.text.strip() == text.strip():
+                    return block.face_index
+        return candidates[0].face_index
+
+    def _attribute_faces(self, result: ComplianceResult, blocks: List[TextBlock]) -> None:
+        for declaration in result.summary.what_was_found:
+            declaration.face_index = self._match_face(
+                declaration.bbox, declaration.extracted_text, blocks
+            )
+        for violation in result.summary.whats_wrong:
+            violation.face_index = self._match_face(
+                violation.evidence_bbox, None, blocks
+            )
+        # Keep the normalized structured output in sync with the attributed summary.
+        if result.structured_result:
+            for entry, declaration in zip(
+                result.structured_result.extracted_declarations,
+                result.summary.what_was_found,
+            ):
+                entry["face_index"] = declaration.face_index
+            for entry, violation in zip(
+                result.structured_result.violation_list,
+                result.summary.whats_wrong,
+            ):
+                entry["face_index"] = violation.face_index
 
     def generate_violation_evidence_image(
         self,
@@ -1088,4 +1202,15 @@ def evaluate_label_compliance(
 ) -> ComplianceResult:
     evaluator = ComplianceEvaluator(ruleset=ruleset, db=db, category=category)
     return evaluator.evaluate(ocr_result, image_bytes=image_bytes)
+
+
+# Whole-product evaluation across every face of one package (multi-face scans)
+def evaluate_label_compliance_multi(
+    face_results: List[OCRScanResult],
+    ruleset: Optional[Dict[str, Any]] = None,
+    db: Optional[Any] = None,
+    category: Optional[str] = None,
+) -> ComplianceResult:
+    evaluator = ComplianceEvaluator(ruleset=ruleset, db=db, category=category)
+    return evaluator.evaluate_product(face_results)
 

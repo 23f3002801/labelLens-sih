@@ -260,6 +260,16 @@ function normalizeInspectionDetail(detail = {}) {
     detail.product?.category ||
     "General Pre-Packaged Commodity";
 
+  const faceImages = Array.isArray(detail.face_images)
+    ? detail.face_images
+    : Array.isArray(detail.faceImages)
+      ? detail.faceImages
+      : Array.isArray(detail.ocr_result?.face_images)
+        ? detail.ocr_result.face_images
+        : Array.isArray(detail.ocrResult?.face_images)
+          ? detail.ocrResult.face_images
+          : [];
+
   return {
     ...normalizeInspectionSummary(detail),
     productName,
@@ -270,6 +280,7 @@ function normalizeInspectionDetail(detail = {}) {
     annotatedImageBase64: detail.annotated_image_base64 ?? detail.annotatedImageBase64 ?? null,
     annotatedImagePath: detail.annotated_image_path ?? detail.annotatedImagePath ?? null,
     annotatedImageUrl,
+    faceImages,
     inspector: detail.inspector ?? null,
     violations,
   };
@@ -370,6 +381,32 @@ const api = {
       };
       xhr.onerror = () =>
         reject(new Error("Cannot reach the server. Make sure the backend is running."));
+      xhr.send(formData);
+    }),
+
+  uploadImages: (files, onProgress, category = "general") =>
+    new Promise((resolve, reject) => {
+      const formData = new FormData();
+      files.forEach((file) => formData.append("files", file));
+      formData.append("category", category);
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${API_BASE_URL}/uploads/images`);
+      const token = api.getToken();
+      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && onProgress) onProgress(Math.round((event.loaded / event.total) * 100));
+      };
+      xhr.onload = () => {
+        let data = null;
+        try { data = JSON.parse(xhr.responseText); } catch { data = null; }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          cacheScanResult(data);
+          resolve(data);
+        } else {
+          reject(new Error(data?.message || `Image batch scan failed with status ${xhr.status}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Cannot reach the server. Make sure the backend is running."));
       xhr.send(formData);
     }),
 

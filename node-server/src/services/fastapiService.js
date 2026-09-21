@@ -1,3 +1,4 @@
+import prisma from "../config/db.js";
 const FASTAPI_BASE_URL = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
 
 // Timeouts (ms) so a hung FastAPI process fails fast instead of leaving the
@@ -33,6 +34,8 @@ function getMimeType(filename) {
     mp4: "video/mp4",
     webm: "video/webm",
     avi: "video/x-msvideo",
+    mov: "video/quicktime",
+    mkv: "video/x-matroska",
   };
   return mimeMap[ext] || "image/jpeg";
 }
@@ -106,15 +109,45 @@ async function runOcrBase64(base64Image) {
 async function evaluateOcrCompliance(ocrResult, category = "general") {
   const cat = encodeURIComponent(category || "general");
   const url = `${FASTAPI_BASE_URL}/api/v1/compliance/evaluate-ocr?category=${cat}`;
+  const ruleset = await getRules(category);
   const response = await fetchWithTimeout(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(ocrResult),
+    body: JSON.stringify({ ocr_result: ocrResult, ruleset }),
   }, EVAL_TIMEOUT_MS);
 
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`FastAPI evaluate-ocr failed with status ${response.status}: ${errorText}`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Evaluate all OCR results for one product in a single FastAPI request.
+ * FastAPI attributes findings back to the face that supplied their evidence.
+ */
+async function evaluateProductCompliance(faces, category = "general") {
+  const cat = encodeURIComponent(category || "general");
+  const url = `${FASTAPI_BASE_URL}/api/v1/compliance/evaluate-ocr-multi?category=${cat}`;
+  const ruleset = await getRules(category);
+  const response = await fetchWithTimeout(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      faces: faces.map((face, index) => ({
+        face_index: face.face_index ?? face.faceIndex ?? index,
+        filename: face.filename || "",
+        ocr_result: face.ocr_result || face.ocrResult,
+      })),
+      ruleset,
+    }),
+  }, EVAL_TIMEOUT_MS);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`FastAPI evaluate-ocr-multi failed with status ${response.status}: ${errorText}`);
   }
 
   return await response.json();
@@ -145,10 +178,10 @@ async function evaluateImageCompliance(imageBuffer, filename = "label.jpg", cate
 /**
  * Call FastAPI stateless /api/v1/video/unwrap
  */
-async function unwrapVideo(videoBuffer, filename = "upload.mp4") {
+async function unwrapVideo(fileBuffer, filename = "upload.mp4") {
   const url = `${FASTAPI_BASE_URL}/api/v1/video/unwrap`;
   const formData = new FormData();
-  formData.append("file", new Blob([videoBuffer], { type: "video/mp4" }), filename);
+  formData.append("file", new Blob([fileBuffer], { type: getMimeType(filename) }), filename);
 
   const response = await fetchWithTimeout(url, {
     method: "POST",
@@ -191,18 +224,37 @@ async function searchCitations(query, topK = 3) {
  * Get active Legal Metrology rules from FastAPI
  */
 async function getRules(category = "general") {
-  const url = `${FASTAPI_BASE_URL}/api/v1/compliance/rules?category=${encodeURIComponent(category || "general")}`;
-  const response = await fetchWithTimeout(url);
-  if (!response.ok) {
-    throw new Error(`FastAPI get rules failed with status ${response.status}`);
-  }
-  return await response.json();
+  const normalizedCategory = (category || "general").trim().toLowerCase();
+  const where = normalizedCategory === "all"
+    ? undefined
+    : normalizedCategory === "general" || normalizedCategory === "base"
+      ? { category: "base" }
+      : { category: { in: ["base", normalizedCategory] } };
+  const rules = await prisma.complianceRule.findMany({ where, orderBy: { id: "asc" } });
+  return {
+    ruleset_version: "prisma",
+    country_scope: "India",
+    category: normalizedCategory,
+    mandatory_declarations: rules.map((rule) => ({
+      id: rule.id,
+      category: rule.category,
+      field_name: rule.fieldName,
+      description: rule.description || "",
+      required: rule.required,
+      expected_format: rule.expectedFormat || "",
+      min_font_size_mm: rule.minFontSizeMm,
+      regex_pattern: rule.regexPattern || "",
+      detection_type: rule.detectionType || "text",
+    })),
+    exemptions: [],
+  };
 }
 
 export {
   runOcr,
   runOcrBase64,
   evaluateOcrCompliance,
+  evaluateProductCompliance,
   evaluateImageCompliance,
   unwrapVideo,
   getCitations,

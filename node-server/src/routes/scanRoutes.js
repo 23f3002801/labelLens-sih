@@ -38,6 +38,11 @@ async function scanRoutes(fastify, options) {
     { preHandler: [optionalAuth] },
     scanController.handlePhotoScan
   );
+  fastify.post(
+    "/uploads/images",
+    { preHandler: [optionalAuth] },
+    scanController.handlePhotoBatch
+  );
   fastify.get("/uploads/:scanId", scanController.getScanById);
 
   // Video scan endpoints
