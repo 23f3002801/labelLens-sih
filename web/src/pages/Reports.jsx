@@ -80,10 +80,11 @@ export default function Reports() {
       item.category?.toLowerCase().includes(searchQuery.toLowerCase());
 
     const isPass = item.status === 'compliant' || item.status === 'COMPLIANT';
+    const isViolation = item.status === 'non_compliant' || item.status === 'NON_COMPLIANT' || item.status === 'failed' || item.status === 'FAILED';
     const matchesStatus =
       statusFilter === 'ALL' ||
       (statusFilter === 'COMPLIANT' && isPass) ||
-      (statusFilter === 'NON_COMPLIANT' && !isPass);
+      (statusFilter === 'NON_COMPLIANT' && isViolation);
 
     return matchesSearch && matchesStatus;
   });
@@ -91,7 +92,7 @@ export default function Reports() {
   // Analytics
   const totalCount = inspections.length;
   const compliantCount = inspections.filter((i) => i.status === 'compliant' || i.status === 'COMPLIANT').length;
-  const violationCount = totalCount - compliantCount;
+  const violationCount = inspections.filter((i) => i.status === 'non_compliant' || i.status === 'NON_COMPLIANT' || i.status === 'failed' || i.status === 'FAILED').length;
   const avgScore = totalCount
     ? Math.round(inspections.reduce((acc, i) => acc + (i.complianceScore ?? 0), 0) / totalCount)
     : 100;

@@ -345,13 +345,15 @@ const api = {
 
   // --- scans ---------------------------------------------------------------
   // Upload + scan a packaging image with progress
-  uploadImage: (file, onProgress) =>
+  // Upload + scan a packaging image with progress
+  uploadImage: (file, onProgress, category = "general") =>
     new Promise((resolve, reject) => {
       const formData = new FormData();
       formData.append("file", file);
+      formData.append("category", category);
 
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", `${API_BASE_URL}/uploads/image`);
+      xhr.open("POST", `${API_BASE_URL}/uploads/image?category=${encodeURIComponent(category)}`);
       const token = api.getToken();
       if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
 
@@ -390,7 +392,7 @@ const api = {
       files.forEach((file) => formData.append("files", file));
       formData.append("category", category);
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", `${API_BASE_URL}/uploads/images`);
+      xhr.open("POST", `${API_BASE_URL}/uploads/images?category=${encodeURIComponent(category)}`);
       const token = api.getToken();
       if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
       xhr.upload.onprogress = (event) => {
@@ -410,11 +412,71 @@ const api = {
       xhr.send(formData);
     }),
 
-  // Dual-path category-scoped upload & scan with FastAPI fallback
-  uploadAndScan: async (file, category = "general") => {
+  // Dual-path category-scoped upload & scan with async polling & FastAPI fallback
+  uploadAndScan: async (file, category = "general", onProgress) => {
     const token = api.getToken();
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("category", category);
+
+    // Helper to poll until scan status is ready
+    const pollUntilReady = async (scanId) => {
+      const maxAttempts = 30; // 30 * 1.5s = 45s max
+      const delay = 1500;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        await new Promise((res) => setTimeout(res, delay));
+        if (onProgress) {
+          if (attempt === 1) onProgress("Running RapidOCR typography & text extraction...");
+          else if (attempt === 3) onProgress(`Evaluating ${category.toUpperCase()} Legal Metrology 2011 compliance...`);
+          else if (attempt === 5) onProgress("Annotating bounding boxes & mapping statutory penalties...");
+        }
+
+        try {
+          const detail = await api.getScanById(scanId);
+          const normalized = normalizeStatus(detail?.status);
+          if (normalized === "compliant" || normalized === "non_compliant" || detail?.status === "COMPLIANT" || detail?.status === "NON_COMPLIANT") {
+            const result = {
+              source: "node-server",
+              scan_id: detail.scan_id || scanId,
+              status: detail.status,
+              overall_result: (detail.status === "COMPLIANT" || detail.status === "compliant") ? "PASS" : "FAIL",
+              compliance_score: detail.compliance_score ?? detail.complianceScore ?? 0,
+              product_name: detail.product_name,
+              category: detail.category || category,
+              image_path: detail.image_path,
+              annotated_image_path: detail.annotated_image_path || null,
+              annotated_image_base64: detail.annotated_image_base64 || detail.ocr_result?.annotated_image_base64 || null,
+              created_at: detail.created_at,
+              extracted_declarations: detail.extracted_declarations || detail.extractedDeclarations || [],
+              violations: (detail.violations || []).map((v) => ({
+                id: v.id,
+                rule_code: v.rule_code || v.ruleCode,
+                severity: v.severity,
+                title: v.title || `${v.rule_code || "Rule"} Violation`,
+                description: v.description || "",
+                evidence_bbox: v.evidence_bbox || v.evidenceBbox,
+                citation: v.citation,
+                detected_on_package: v.detected_on_package || v.detectedOnPackage,
+                expected_on_package: v.expected_on_package || v.expectedOnPackage,
+                package_element: v.package_element || v.packageElement,
+              })),
+              ocr_result: detail.ocr_result,
+            };
+            cacheScanResult(result);
+            return result;
+          }
+
+          if (normalized === "failed" || detail?.status === "FAILED") {
+            throw new Error(detail?.raw_ocr_output?.error || detail?.rawOcrOutput?.error || "Inspection scan failed processing");
+          }
+        } catch (pollErr) {
+          if (pollErr.message && !pollErr.message.includes("404")) {
+            throw pollErr;
+          }
+        }
+      }
+      throw new Error("Scan processing timed out. Please check your Inspections log.");
+    };
 
     // 1. Primary: Fastify server orchestration
     try {
@@ -433,58 +495,90 @@ const api = {
 
       if (response.ok) {
         const data = await response.json();
+        const scanId = data?.scan_id || data?.id;
+        if (scanId && (data.status === "PROCESSING" || data.status === "pending" || !data.violations)) {
+          return await pollUntilReady(scanId);
+        }
         cacheScanResult(data);
         return {
           source: "node-server",
           ...data,
+          overall_result: (data.status === "COMPLIANT" || data.status === "compliant") ? "PASS" : "FAIL",
         };
       }
     } catch (nodeErr) {
-      console.warn("Node server unavailable, falling back to direct FastAPI compute:", nodeErr);
+      console.warn("Node server unavailable or scan error, falling back to direct FastAPI compute:", nodeErr);
     }
 
-    // 2. Fallback: Direct FastAPI compute engine
-    const directForm = new FormData();
-    directForm.append("file", file);
-    const directRes = await fetch(
-      `${FASTAPI_BASE}/compliance/evaluate-image?enhance=true&category=${encodeURIComponent(category)}`,
-      {
-        method: "POST",
-        body: directForm,
+    // 2. Fallback: Direct FastAPI stateless compute engine (OCR + Evaluate OCR)
+    try {
+      if (onProgress) onProgress("Running direct RapidOCR compute engine...");
+      const directForm = new FormData();
+      directForm.append("file", file);
+
+      const ocrRes = await fetch(
+        `${FASTAPI_BASE}/ocr/scan?enhance=true&include_annotated_image=true`,
+        {
+          method: "POST",
+          body: directForm,
+        }
+      );
+
+      if (!ocrRes.ok) {
+        const ocrErr = await ocrRes.text();
+        throw new Error(`Direct OCR extraction failed: ${ocrErr || ocrRes.statusText}`);
       }
-    );
 
-    if (!directRes.ok) {
-      const errText = await directRes.text();
-      throw new Error(`Compliance scan failed: ${errText || directRes.statusText}`);
+      const ocrData = await ocrRes.json();
+      if (onProgress) onProgress(`Evaluating ${category.toUpperCase()} Legal Metrology compliance directly...`);
+
+      const evalRes = await fetch(
+        `${FASTAPI_BASE}/compliance/evaluate-ocr?category=${encodeURIComponent(category)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ocr_result: ocrData, ruleset: null }),
+        }
+      );
+
+      if (!evalRes.ok) {
+        const evalErr = await evalRes.text();
+        throw new Error(`Direct compliance evaluation failed: ${evalErr || evalRes.statusText}`);
+      }
+
+      const fastApiData = await evalRes.json();
+      const directResult = {
+        source: "fastapi-direct",
+        scan_id: `direct_${Date.now()}`,
+        status: fastApiData.overall_result === "PASS" ? "COMPLIANT" : "NON_COMPLIANT",
+        image_path: null,
+        created_at: new Date().toISOString(),
+        compliance_score: fastApiData.compliance_score,
+        overall_result: fastApiData.overall_result,
+        category,
+        annotated_image_base64: fastApiData.annotated_image_base64 || ocrData.annotated_image_base64 || null,
+        annotated_image_path: null,
+        ocr_result: ocrData,
+        extracted_declarations: fastApiData.summary?.what_was_found || [],
+        missing_declarations: fastApiData.summary?.whats_missing || [],
+        violations: (fastApiData.summary?.whats_wrong || []).map((v) => ({
+          id: v.id,
+          rule_code: v.rule_id,
+          severity: v.severity,
+          title: `${v.field_name} - ${(v.violation_type || "Violation").toUpperCase()}`,
+          description: v.description,
+          evidence_bbox: v.evidence_bbox,
+          citation: v.citation,
+          detected_on_package: v.detected_on_package,
+          expected_on_package: v.expected_on_package,
+          package_element: v.package_element,
+        })),
+      };
+      cacheScanResult(directResult);
+      return directResult;
+    } catch (fallbackErr) {
+      throw new Error(`Compliance scan failed: ${fallbackErr.message}`);
     }
-
-    const fastApiData = await directRes.json();
-    return {
-      source: "fastapi-direct",
-      scan_id: `direct_${Date.now()}`,
-      status: fastApiData.overall_result === "PASS" ? "COMPLIANT" : "NON_COMPLIANT",
-      image_path: null,
-      created_at: new Date().toISOString(),
-      compliance_score: fastApiData.compliance_score,
-      overall_result: fastApiData.overall_result,
-      category,
-      annotated_image_base64: fastApiData.annotated_image_base64,
-      extracted_declarations: fastApiData.summary?.what_was_found || [],
-      missing_declarations: fastApiData.summary?.whats_missing || [],
-      violations: (fastApiData.summary?.whats_wrong || []).map((v) => ({
-        id: v.id,
-        rule_code: v.rule_id,
-        severity: v.severity,
-        title: `${v.field_name} - ${(v.violation_type || "Violation").toUpperCase()}`,
-        description: v.description,
-        evidence_bbox: v.evidence_bbox,
-        citation: v.citation,
-        detected_on_package: v.detected_on_package,
-        expected_on_package: v.expected_on_package,
-        package_element: v.package_element,
-      })),
-    };
   },
 
   uploadVideo: (file, onProgress) =>

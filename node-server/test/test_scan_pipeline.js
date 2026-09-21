@@ -1,5 +1,8 @@
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function runTest() {
   console.log("=== Testing End-to-End Stitched Architecture ===");
@@ -42,29 +45,49 @@ async function runTest() {
     body: formData,
   });
 
-  const duration = ((Date.now() - startTime) / 1000).toFixed(2);
   if (!scanRes.ok) {
     const err = await scanRes.text();
     throw new Error(`Scan failed (${scanRes.status}): ${err}`);
   }
 
-  const scanData = await scanRes.json();
+  const initialData = await scanRes.json();
+  console.log(`   ✓ Scan accepted (Scan ID: ${initialData.scan_id}, Initial Status: ${initialData.status})`);
+
+  // Poll until background processing completes
+  let scanData = null;
+  for (let i = 0; i < 20; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const pollRes = await fetch(`http://localhost:3000/api/v1/uploads/${initialData.scan_id}`);
+    if (pollRes.ok) {
+      const data = await pollRes.json();
+      if (data.status === "COMPLIANT" || data.status === "NON_COMPLIANT" || data.status === "FAILED") {
+        scanData = data;
+        break;
+      }
+    }
+  }
+
+  if (!scanData) {
+    throw new Error("Scan processing timed out waiting for completion");
+  }
+
+  const duration = ((Date.now() - startTime) / 1000).toFixed(2);
   console.log(`   ✓ Scan pipeline completed in ${duration}s!`);
   console.log(`   - Scan ID: ${scanData.scan_id}`);
-  console.log(`   - Status: ${scanData.status}`);
+  console.log(`   - Final Status: ${scanData.status}`);
   console.log(`   - Compliance Score: ${scanData.compliance_score}%`);
   console.log(`   - Category: ${scanData.category || 'food'}`);
   console.log(`   - Declarations Extracted: ${scanData.extracted_declarations?.length || 0}`);
+  console.log(`   - Violations Flagged: ${scanData.violations?.length || 0}`);
   if (scanData.image_path) {
-    console.log(`   - Cloudinary Evidence URL: ${scanData.image_path.substring(0, 50)}...`);
+    console.log(`   - Cloudinary Evidence URL: ${scanData.image_path.substring(0, 60)}...`);
   }
   if (scanData.violations?.length > 0) {
     const v0 = scanData.violations[0];
     console.log(`   - Sample Violation Detail:`);
     console.log(`     * Title: ${v0.title}`);
-    console.log(`     * Package Area: ${v0.package_element}`);
-    console.log(`     * Detected on Package: ${v0.detected_on_package}`);
-    console.log(`     * Mandated by Law: ${v0.expected_on_package}`);
+    console.log(`     * Rule Code: ${v0.rule_code}`);
+    console.log(`     * Severity: ${v0.severity}`);
   }
 
   // 4. Verify DB persistence

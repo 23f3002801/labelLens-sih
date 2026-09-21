@@ -44,7 +44,7 @@ export default function Dashboard() {
     totalScans: inspections.length,
     compliant: inspections.filter(i => i.status === 'compliant').length,
     violations: inspections.filter(i => i.status === 'non_compliant').length,
-    pending: inspections.filter(i => i.status === 'pending').length
+    pending: inspections.filter(i => i.status === 'pending').length // api.js maps PROCESSING→pending
   };
 
   const complianceScore = stats.totalScans > 0 

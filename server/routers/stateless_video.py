@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from starlette.concurrency import run_in_threadpool
 
-from services.vide_temp import CHECKPOINT_PATH, DINO_MODEL_PATH, UniversalLabelExtractor
+from services.video_processing import CHECKPOINT_PATH, UniversalLabelExtractor
 
 router = APIRouter(prefix="/api/v1/video", tags=["Video Processing"])
 _unwrapper = None
@@ -44,11 +44,6 @@ async def video_unwrap(file: UploadFile = File(...)):
                 "SAM2 checkpoint missing. Run: python scripts/download_checkpoint.py "
                 f"(expected at {CHECKPOINT_PATH})"
             ),
-        )
-    if not DINO_MODEL_PATH.exists():
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"GroundingDINO checkpoint missing (expected at {DINO_MODEL_PATH})",
         )
 
     with tempfile.TemporaryDirectory() as temp_dir:
